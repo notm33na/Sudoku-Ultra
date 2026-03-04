@@ -1,0 +1,22 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Sudoku Ultra — ML Service Dependencies
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Core
+fastapi==0.110.0
+uvicorn[standard]==0.27.0
+pydantic==2.6.0
+
+# ML / AI
+torch==2.2.0
+scikit-learn==1.4.0
+numpy==1.26.0
+pandas==2.2.0
+
+# LLM / RAG
+langchain==0.1.0
+langchain-community==0.0.10
+
+# Utilities
+python-dotenv==1.0.0
+httpx==0.27.0

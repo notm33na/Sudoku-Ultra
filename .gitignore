@@ -1,0 +1,84 @@
+# === Dependencies ===
+node_modules/
+.pnp
+.pnp.js
+
+# === Build outputs ===
+dist/
+build/
+*.tsbuildinfo
+
+# === Turborepo ===
+.turbo/
+
+# === Environment ===
+.env
+.env.local
+.env.*.local
+
+# === Testing ===
+coverage/
+*.lcov
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+*.egg-info/
+.eggs/
+
+# === Go ===
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+vendor/
+
+# === Docker ===
+docker-volumes/
+
+# === Expo / React Native ===
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+ios/
+android/
+
+# === ML ===
+*.h5
+*.pkl
+*.pt
+*.onnx
+*.safetensors
+mlruns/
+mlflow-artifacts/
+
+# === Prisma ===
+prisma/*.db
+prisma/*.db-journal
+
+# === Logs ===
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

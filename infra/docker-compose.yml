@@ -1,0 +1,65 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Sudoku Ultra — Docker Compose (Local Development)
+# ──────────────────────────────────────────────────────────────────────────────
+# Full service definitions (PostgreSQL, MongoDB, Redis, game-service, Metro)
+# will be configured in Deliverable 5.
+
+version: "3.9"
+
+services:
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: sudoku-ultra-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: sudoku
+      POSTGRES_PASSWORD: sudoku_dev_password
+      POSTGRES_DB: sudoku_ultra
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sudoku -d sudoku_ultra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: sudoku-ultra-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: sudoku
+      MONGO_INITDB_ROOT_PASSWORD: sudoku_dev_password
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: sudoku-ultra-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:

@@ -1,0 +1,11 @@
+{
+    "name": "@sudoku-ultra/web-admin",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Sudoku Ultra — Angular admin dashboard (future phase)",
+    "scripts": {
+        "build": "echo 'Web admin — not yet scaffolded'",
+        "lint": "echo 'Web admin — not yet scaffolded'",
+        "test": "echo 'Web admin — not yet scaffolded'"
+    }
+}

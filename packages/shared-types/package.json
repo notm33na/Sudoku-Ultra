@@ -1,0 +1,16 @@
+{
+    "name": "@sudoku-ultra/shared-types",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Shared TypeScript type definitions for Sudoku Ultra",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "lint": "eslint src/ --ext .ts",
+        "type-check": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "typescript": "^5.4.0"
+    }
+}

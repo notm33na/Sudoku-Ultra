@@ -1,0 +1,12 @@
+// ─── Prisma Schema ─── Sudoku Ultra Game Service ──────────────────────────────
+// Full models (User, Puzzle, GameSession, Score, Streak, DailyPuzzle) will be
+// defined in Deliverable 3.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

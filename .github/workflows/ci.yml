@@ -1,0 +1,21 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Sudoku Ultra — CI/CD Pipeline (GitHub Actions)
+# ──────────────────────────────────────────────────────────────────────────────
+# Full CI pipeline (lint, type-check, unit-test, integration-test, build,
+# docker-build, GHCR push, matrix strategy) will be defined in Deliverable 6.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scaffold check
+        run: echo "CI pipeline scaffold — full pipeline in Deliverable 6"

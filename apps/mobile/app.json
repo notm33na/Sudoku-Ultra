@@ -1,0 +1,32 @@
+{
+    "expo": {
+        "name": "Sudoku Ultra",
+        "slug": "sudoku-ultra",
+        "version": "0.0.1",
+        "orientation": "portrait",
+        "icon": "./assets/icon.png",
+        "userInterfaceStyle": "automatic",
+        "splash": {
+            "image": "./assets/splash.png",
+            "resizeMode": "contain",
+            "backgroundColor": "#0f172a"
+        },
+        "assetBundlePatterns": [
+            "**/*"
+        ],
+        "ios": {
+            "supportsTablet": true,
+            "bundleIdentifier": "com.sudokuultra.app"
+        },
+        "android": {
+            "adaptiveIcon": {
+                "foregroundImage": "./assets/adaptive-icon.png",
+                "backgroundColor": "#0f172a"
+            },
+            "package": "com.sudokuultra.app"
+        },
+        "web": {
+            "favicon": "./assets/favicon.png"
+        }
+    }
+}
