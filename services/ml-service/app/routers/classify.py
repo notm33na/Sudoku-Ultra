@@ -2,13 +2,14 @@
 Difficulty classification router.
 
 Receives puzzle features and returns ML-predicted difficulty
-with SHAP-based explanations.
-
-Fully implemented in Deliverable 2.
+with SHAP-based explanations. Falls back to rule-based if model
+is not loaded.
 """
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
+
+from app.services.classifier_service import classifier
 
 router = APIRouter(prefix="/api/v1", tags=["classification"])
 
@@ -48,38 +49,15 @@ async def classify_difficulty(features: PuzzleFeatures) -> ClassificationResult:
     """
     Classify puzzle difficulty using Random Forest + SHAP.
 
-    Fully implemented in Deliverable 2 — currently returns rule-based fallback.
+    If the ML model is loaded, returns ML prediction with SHAP explanation.
+    Otherwise, falls back to rule-based classification.
     """
-    # Rule-based fallback (replaced by ML model in D2)
-    clue_count = features.clue_count
-    if clue_count >= 45:
-        difficulty = "super_easy"
-    elif clue_count >= 36:
-        difficulty = "easy"
-    elif clue_count >= 30:
-        difficulty = "medium"
-    elif clue_count >= 26:
-        difficulty = "hard"
-    elif clue_count >= 22:
-        difficulty = "super_hard"
-    else:
-        difficulty = "extreme"
+    feature_dict = features.model_dump()
+    result = classifier.predict(feature_dict)
 
     return ClassificationResult(
-        difficulty=difficulty,
-        confidence=0.5,  # Low confidence — rule-based fallback
-        shap_values={
-            "clue_count": 0.3,
-            "naked_singles": 0.15,
-            "hidden_singles": 0.1,
-            "naked_pairs": 0.05,
-            "pointing_pairs": 0.03,
-            "box_line_reduction": 0.02,
-            "backtrack_depth": 0.15,
-            "constraint_density": 0.1,
-            "symmetry_score": 0.02,
-            "avg_candidate_count": 0.08,
-        },
-        explanation=f"Rule-based fallback: {clue_count} clues → {difficulty}. "
-        "ML model not yet loaded — will use Random Forest + SHAP in Deliverable 2.",
+        difficulty=result["difficulty"],
+        confidence=result["confidence"],
+        shap_values=result["shap_values"],
+        explanation=result["explanation"],
     )

@@ -88,6 +88,53 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── ML Service ───────────────────────────────────────────────────────────────
+  ml-service:
+    build:
+      context: ../services/ml-service
+      dockerfile: Dockerfile
+    container_name: sudoku-ultra-ml-service
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: 3003
+      ENV: production
+      LOG_LEVEL: INFO
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      DATABASE_URL: postgresql://sudoku:sudoku_dev_password@postgres:5432/sudoku_ultra
+      GAME_SERVICE_URL: http://game-service:3001
+    volumes:
+      - ml_models:/app/ml/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3003/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── MLflow Tracking Server ──────────────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.0
+    container_name: sudoku-ultra-mlflow
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: sqlite:///mlflow/mlflow.db
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+
   # ── Nginx API Gateway ───────────────────────────────────────────────────────
   nginx:
     image: nginx:1.25-alpine
@@ -105,3 +152,5 @@ volumes:
   postgres_data:
   mongo_data:
   redis_data:
+  ml_models:
+  mlflow_data:
