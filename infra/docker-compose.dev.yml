@@ -1,0 +1,22 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Sudoku Ultra — Docker Compose (Development Mode)
+# ──────────────────────────────────────────────────────────────────────────────
+# Usage: cd infra && docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# This overrides game-service to use volume mounts + ts-node-dev for hot reload.
+
+version: "3.9"
+
+services:
+  game-service:
+    build:
+      context: ..
+      dockerfile: services/game-service/Dockerfile
+      target: builder
+    volumes:
+      - ../services/game-service/src:/app/services/game-service/src:ro
+      - ../packages/shared-types/src:/app/packages/shared-types/src:ro
+      - ../packages/sudoku-engine/src:/app/packages/sudoku-engine/src:ro
+    command: >
+      sh -c "cd services/game-service && npx ts-node-dev --respawn --transpile-only src/index.ts"
+    environment:
+      NODE_ENV: development
