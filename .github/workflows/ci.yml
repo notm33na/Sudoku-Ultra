@@ -128,5 +128,6 @@ jobs:
           file: services/game-service/Dockerfile
           push: false
           tags: sudoku-ultra/game-service:latest
+          provenance: false
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
