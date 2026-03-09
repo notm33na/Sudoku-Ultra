@@ -28,11 +28,11 @@ COPY packages/shared-types/ packages/shared-types/
 COPY packages/sudoku-engine/ packages/sudoku-engine/
 COPY services/game-service/ services/game-service/
 
+# Generate Prisma client (must happen before build — types needed)
+RUN cd services/game-service && npx prisma generate
+
 # Build shared packages first, then game-service
 RUN npx turbo build --filter=@sudoku-ultra/game-service
-
-# Generate Prisma client
-RUN cd services/game-service && npx prisma generate
 
 # Stage 2: Production
 FROM node:20-alpine AS runner
