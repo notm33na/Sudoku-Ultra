@@ -53,7 +53,7 @@ COPY --from=builder /app/packages/sudoku-engine/package.json ./packages/sudoku-e
 COPY --from=builder /app/services/game-service/dist ./services/game-service/dist
 COPY --from=builder /app/services/game-service/prisma ./services/game-service/prisma
 COPY --from=builder /app/services/game-service/package.json ./services/game-service/
-COPY --from=builder /app/services/game-service/node_modules/.prisma ./services/game-service/node_modules/.prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/package.json ./
 
 USER gameservice
