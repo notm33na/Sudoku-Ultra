@@ -1,5 +1,5 @@
 import { Difficulty } from '@sudoku-ultra/shared-types';
-import { EMPTY_VALUE, GRID_SIZE, CLUE_RANGES } from './constants';
+import { GRID_SIZE, CLUE_RANGES } from './constants';
 import { countClues } from './utils';
 import { solveWithNakedSinglesOnly, solveWithBasicConstraints, isSolvableWithBasicConstraints } from './solver';
 

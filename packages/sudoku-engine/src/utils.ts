@@ -23,7 +23,7 @@ export function cloneNumberGrid(grid: number[][]): number[][] {
  * Convert a flat number grid into a Cell[][] grid.
  * Non-zero values are marked as GIVEN + locked; zeros are EMPTY.
  */
-export function createCellGrid(numberGrid: number[][], solution: number[][]): Grid {
+export function createCellGrid(numberGrid: number[][], _solution: number[][]): Grid {
     const cellGrid: Grid = [];
     for (let r = 0; r < GRID_SIZE; r++) {
         const row: Cell[] = [];

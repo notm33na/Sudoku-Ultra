@@ -4,7 +4,7 @@ import { classifyDifficulty, getDifficulty } from '../difficulty';
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 // Very easy — 50 clues, solvable with naked singles only
-const BEGINNER_GRID: number[][] = [
+const _BEGINNER_GRID: number[][] = [
     [8, 2, 7, 1, 5, 4, 3, 9, 6],
     [9, 6, 5, 3, 2, 7, 1, 4, 8],
     [3, 4, 1, 6, 8, 9, 7, 5, 2],
