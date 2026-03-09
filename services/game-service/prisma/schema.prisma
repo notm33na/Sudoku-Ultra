@@ -1,6 +1,4 @@
 // ─── Prisma Schema ─── Sudoku Ultra Game Service ──────────────────────────────
-// Full models (User, Puzzle, GameSession, Score, Streak, DailyPuzzle) will be
-// defined in Deliverable 3.
 
 generator client {
   provider = "prisma-client-js"
@@ -9,4 +7,113 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  avatarUrl    String?  @map("avatar_url")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  sessions GameSession[]
+  scores   Score[]
+  streak   Streak?
+
+  @@map("users")
+}
+
+// ─── Puzzle ───────────────────────────────────────────────────────────────────
+
+model Puzzle {
+  id         String   @id @default(uuid())
+  grid       Json     // Cell[][] as JSON
+  solution   Json     // number[][] as JSON
+  difficulty String   // beginner | easy | medium | hard | expert | evil
+  clueCount  Int      @map("clue_count")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  sessions    GameSession[]
+  scores      Score[]
+  dailyPuzzle DailyPuzzle?
+
+  @@map("puzzles")
+}
+
+// ─── Game Session ─────────────────────────────────────────────────────────────
+
+model GameSession {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  puzzleId      String   @map("puzzle_id")
+  currentGrid   Json     @map("current_grid") // Cell[][] as JSON
+  status        String   @default("in_progress") // in_progress | completed | paused | abandoned
+  difficulty    String
+  timeElapsedMs Int      @default(0) @map("time_elapsed_ms")
+  score         Int      @default(0)
+  hintsUsed     Int      @default(0) @map("hints_used")
+  errorsCount   Int      @default(0) @map("errors_count")
+  startedAt     DateTime @default(now()) @map("started_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  completedAt   DateTime? @map("completed_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+  scores Score[]
+
+  @@index([userId])
+  @@index([puzzleId])
+  @@map("game_sessions")
+}
+
+// ─── Score ────────────────────────────────────────────────────────────────────
+
+model Score {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  puzzleId    String   @map("puzzle_id")
+  sessionId   String   @map("session_id")
+  timeMs      Int      @map("time_ms")
+  points      Int
+  difficulty  String
+  completedAt DateTime @default(now()) @map("completed_at")
+
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle  Puzzle      @relation(fields: [puzzleId], references: [id])
+  session GameSession @relation(fields: [sessionId], references: [id])
+
+  @@index([userId])
+  @@index([difficulty, points(sort: Desc)])
+  @@map("scores")
+}
+
+// ─── Streak ───────────────────────────────────────────────────────────────────
+
+model Streak {
+  id             String   @id @default(uuid())
+  userId         String   @unique @map("user_id")
+  currentStreak  Int      @default(0) @map("current_streak")
+  longestStreak  Int      @default(0) @map("longest_streak")
+  lastPlayedDate DateTime? @map("last_played_date")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("streaks")
+}
+
+// ─── Daily Puzzle ─────────────────────────────────────────────────────────────
+
+model DailyPuzzle {
+  id         String   @id @default(uuid())
+  puzzleId   String   @unique @map("puzzle_id")
+  date       DateTime @unique @db.Date
+  difficulty String
+
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+
+  @@map("daily_puzzles")
 }
