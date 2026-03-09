@@ -17,8 +17,8 @@ COPY packages/shared-types/package.json packages/shared-types/
 COPY packages/sudoku-engine/package.json packages/sudoku-engine/
 COPY services/game-service/package.json services/game-service/
 
-# Install all workspace dependencies
-RUN npm ci --workspace=packages/shared-types \
+# Install all workspace dependencies (HUSKY=0 skips git hooks setup)
+RUN HUSKY=0 npm ci --workspace=packages/shared-types \
            --workspace=packages/sudoku-engine \
            --workspace=services/game-service
 
