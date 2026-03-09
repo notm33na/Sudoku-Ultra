@@ -2,13 +2,13 @@
 Adaptive difficulty recommendation router.
 
 Predicts the optimal next difficulty for a user based on
-their gameplay history.
-
-Fully implemented in Deliverable 3.
+their gameplay history using Gradient Boosting Regression.
 """
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
+
+from app.services.recommender_service import recommender
 
 router = APIRouter(prefix="/api/v1", tags=["recommendation"])
 
@@ -41,12 +41,27 @@ async def recommend_difficulty(features: UserFeatures) -> RecommendationResult:
     """
     Recommend optimal difficulty for a user.
 
-    Fully implemented in Deliverable 3 — currently returns last played difficulty.
+    Uses Gradient Boosting Regressor trained on user gameplay features.
+    Falls back to last_played_difficulty if model is not loaded.
     """
-    # D3: Gradient Boosting Regressor prediction
+    # Extract features into flat dict for inference
+    solve_times = features.avg_solve_time_per_difficulty
+    feature_dict = {
+        "avg_solve_time_easy": solve_times.get("easy", solve_times.get("super_easy", 120)),
+        "avg_solve_time_medium": solve_times.get("medium", 300),
+        "avg_solve_time_hard": solve_times.get("hard", solve_times.get("super_hard", 600)),
+        "hint_rate": features.hint_rate,
+        "error_rate": features.error_rate,
+        "current_streak": features.current_streak,
+        "session_count": features.session_count,
+        "last_played_difficulty": features.last_played_difficulty,
+        "win_rate": features.win_rate,
+    }
+
+    result = recommender.predict(feature_dict)
+
     return RecommendationResult(
-        recommended_difficulty=features.last_played_difficulty,
-        confidence=0.5,
-        reasoning=f"Fallback: returning last played difficulty '{features.last_played_difficulty}'. "
-        "ML model not yet loaded — will use Gradient Boosting in Deliverable 3.",
+        recommended_difficulty=result["recommended_difficulty"],
+        confidence=result["confidence"],
+        reasoning=result["reasoning"],
     )
