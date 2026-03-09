@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import {
     Difficulty,
-    Cell,
     Grid,
     CellStatus,
     GameAction,
