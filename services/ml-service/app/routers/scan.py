@@ -3,12 +3,12 @@ Puzzle scanning router.
 
 Receives an image and returns extracted 9x9 grid using
 OpenCV preprocessing + CNN digit recognition.
-
-Fully implemented in Deliverable 4.
 """
 
 from fastapi import APIRouter, UploadFile, File
 from pydantic import BaseModel, Field
+
+from app.services.scanner_service import scanner_service
 
 router = APIRouter(prefix="/api/v1", tags=["scanner"])
 
@@ -26,11 +26,14 @@ async def scan_puzzle(image: UploadFile = File(...)) -> ScanResult:
     """
     Scan a physical Sudoku puzzle from an image.
 
-    Fully implemented in Deliverable 4 — currently returns placeholder.
+    Pipeline: Image → OpenCV preprocessing → CNN digit recognition → grid.
     """
-    # D4: OpenCV preprocessing → CNN digit recognition → grid
+    image_bytes = await image.read()
+
+    result = scanner_service.scan(image_bytes)
+
     return ScanResult(
-        grid=[0] * 81,
-        confidence=[0.0] * 81,
-        warnings=["Scanner not yet implemented — see Deliverable 4"],
+        grid=result["grid"],
+        confidence=result["confidence"],
+        warnings=result["warnings"],
     )
