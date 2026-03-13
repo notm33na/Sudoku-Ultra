@@ -1,0 +1,130 @@
+{
+  "models": {
+    "test-model": {
+      "versions": {
+        "1.0.0": {
+          "name": "test-model",
+          "version": "1.0.0",
+          "model_path": "/fake/test.pkl",
+          "file_hash": null,
+          "metrics": {
+            "accuracy": 0.91
+          },
+          "stage": "production",
+          "tags": {
+            "env": "test"
+          },
+          "registered_at": "2026-03-13T14:46:00.054059+00:00",
+          "updated_at": "2026-03-13T14:46:00.054070+00:00"
+        }
+      },
+      "latest": "1.0.0",
+      "production": "1.0.0"
+    },
+    "promo-model": {
+      "versions": {
+        "1.0.0": {
+          "name": "promo-model",
+          "version": "1.0.0",
+          "model_path": "/fake/promo.pkl",
+          "file_hash": null,
+          "metrics": {},
+          "stage": "development",
+          "tags": {},
+          "registered_at": "2026-03-13T14:46:00.069613+00:00",
+          "updated_at": "2026-03-13T14:46:00.069623+00:00"
+        },
+        "2.0.0": {
+          "name": "promo-model",
+          "version": "2.0.0",
+          "model_path": "/fake/promo.pkl",
+          "file_hash": null,
+          "metrics": {},
+          "stage": "production",
+          "tags": {},
+          "registered_at": "2026-03-13T14:46:00.072210+00:00",
+          "updated_at": "2026-03-13T14:46:00.075290+00:00"
+        }
+      },
+      "latest": "2.0.0",
+      "production": "2.0.0"
+    },
+    "difficulty-classifier": {
+      "versions": {
+        "auto-c8503b75": {
+          "name": "difficulty-classifier",
+          "version": "auto-c8503b75",
+          "model_path": "ml/models/difficulty_classifier.pkl",
+          "file_hash": "8bb37a9ca1b6343a9a0dc6e1749ae9de28a696fab26f0a2e13120dd7c327efb3",
+          "metrics": {
+            "test_accuracy": 1.0
+          },
+          "stage": "production",
+          "tags": {
+            "job_id": "c8503b75",
+            "trigger": "api"
+          },
+          "registered_at": "2026-03-13T14:45:03.766534+00:00",
+          "updated_at": "2026-03-13T14:45:03.766553+00:00"
+        },
+        "auto-4f2fd0cc": {
+          "name": "difficulty-classifier",
+          "version": "auto-4f2fd0cc",
+          "model_path": "ml/models/difficulty_classifier.pkl",
+          "file_hash": "8bb37a9ca1b6343a9a0dc6e1749ae9de28a696fab26f0a2e13120dd7c327efb3",
+          "metrics": {
+            "test_accuracy": 1.0
+          },
+          "stage": "staging",
+          "tags": {
+            "job_id": "4f2fd0cc",
+            "trigger": "api"
+          },
+          "registered_at": "2026-03-13T14:45:07.973617+00:00",
+          "updated_at": "2026-03-13T14:45:07.973641+00:00"
+        },
+        "auto-1ad5f28f": {
+          "name": "difficulty-classifier",
+          "version": "auto-1ad5f28f",
+          "model_path": "ml/models/difficulty_classifier.pkl",
+          "file_hash": "8bb37a9ca1b6343a9a0dc6e1749ae9de28a696fab26f0a2e13120dd7c327efb3",
+          "metrics": {
+            "test_accuracy": 1.0
+          },
+          "stage": "staging",
+          "tags": {
+            "job_id": "1ad5f28f",
+            "trigger": "api"
+          },
+          "registered_at": "2026-03-13T14:46:14.776900+00:00",
+          "updated_at": "2026-03-13T14:46:14.776919+00:00"
+        }
+      },
+      "latest": "auto-1ad5f28f",
+      "production": null
+    },
+    "adaptive-difficulty": {
+      "versions": {
+        "auto-9384b40a": {
+          "name": "adaptive-difficulty",
+          "version": "auto-9384b40a",
+          "model_path": "ml/models/adaptive_regression.pkl",
+          "file_hash": "65bfb93e38c08abfed044931e1bcf08f34cce39657a3ee0ad32359c374c9c978",
+          "metrics": {
+            "test_rmse": 0.47693258326914467
+          },
+          "stage": "production",
+          "tags": {
+            "job_id": "9384b40a",
+            "trigger": "api"
+          },
+          "registered_at": "2026-03-13T14:46:18.626023+00:00",
+          "updated_at": "2026-03-13T14:46:18.626047+00:00"
+        }
+      },
+      "latest": "auto-9384b40a",
+      "production": "auto-9384b40a"
+    }
+  },
+  "metadata": {}
+}

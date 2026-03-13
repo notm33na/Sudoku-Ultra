@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"d:/Sudoku-Ultra/apps/mobile/assets/models/.gitkeep\")",
+      "Bash(npx jest --testPathPattern=\"edgeAI.benchmark\" --no-coverage)",
+      "Bash(npx tsc --noEmit --skipLibCheck)",
+      "Bash(python -m pytest tests/test_mlops.py -v --tb=short)",
+      "Bash(pip install duckdb --quiet)",
+      "Bash(pip install duckdb)",
+      "Bash(python -c \"import duckdb; print\\(duckdb.__version__\\)\")",
+      "Bash(python -m pip install duckdb -q)",
+      "Bash(python -c \":*)",
+      "Bash(git -C d:/Sudoku-Ultra log --oneline -30)",
+      "Bash(git -C d:/Sudoku-Ultra show b195cf7 --stat)",
+      "Bash(find d:/Sudoku-Ultra -name *.py -path */airflow* -o -name dag_*.py -o -name *_dag.py)",
+      "Bash(xargs grep:*)"
+    ]
+  }
+}

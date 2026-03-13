@@ -73,12 +73,59 @@ jobs:
         if: inputs.model == 'all' || inputs.model == 'classifier' || inputs.model == 'scanner'
         run: python -m app.ml.export_onnx
 
+      - name: Run post-training tests
+        run: python -m pytest tests/ -v --tb=short
+
+      - name: Register and promote trained models
+        run: |
+          python - <<'EOF'
+          import os
+          import pathlib
+          import sys
+
+          # Ensure the app package is importable from services/ml-service
+          sys.path.insert(0, str(pathlib.Path.cwd()))
+
+          from app.services.model_version_registry import ModelVersionRegistry
+
+          sha = os.environ.get("GITHUB_SHA", "unknown")[:8]
+          version = f"ci-{sha}"
+
+          # Canonical artifact paths — must match what each train_*.py actually saves.
+          model_map = {
+              "difficulty-classifier": "ml/models/difficulty_classifier.pkl",
+              "adaptive-difficulty":   "ml/models/adaptive_regression.pkl",
+              "digit-scanner":         "ml/models/scanner.pt",
+              "skill-clustering":      "ml/models/skill_clustering.pkl",
+              "churn-predictor":       "ml/models/churn_predictor.pkl",
+          }
+
+          registry = ModelVersionRegistry()
+
+          for name, path in model_map.items():
+              if not pathlib.Path(path).exists():
+                  print(f"  – {name}: artifact not found at {path}, skipping")
+                  continue
+
+              # Register in staging first; promote() handles archiving previous production.
+              registry.register_model(
+                  name=name,
+                  version=version,
+                  model_path=path,
+                  metrics={},
+                  stage="staging",
+                  tags={"trigger": "ci", "sha": sha},
+              )
+              registry.promote(name, version, "production")
+              print(f"  ✓ {name}@{version} → production")
+
+          print(f"Manifest saved: {registry.manifest_path}")
+          EOF
+
       - name: Upload model artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ml-models-${{ github.sha }}
-          path: services/ml-service/ml/models/
+          path: |
+            services/ml-service/ml/models/
           retention-days: 30
-
-      - name: Run post-training tests
-        run: python -m pytest tests/ -v --tb=short

@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.logging import setup_logging
 from app.middleware import RequestLoggingMiddleware, register_exception_handlers
-from app.routers import health, classify, scan, recommend, churn, clustering, edge, analytics
+from app.routers import health, classify, scan, recommend, churn, clustering, edge, analytics, mlops
 from app.services.model_registry import model_registry
 
 logger = setup_logging(settings.LOG_LEVEL)
@@ -63,5 +63,6 @@ def create_app() -> FastAPI:
     app.include_router(clustering.router)
     app.include_router(edge.router)
     app.include_router(analytics.router)
+    app.include_router(mlops.router)
 
     return app

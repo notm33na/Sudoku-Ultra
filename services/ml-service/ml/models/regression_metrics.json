@@ -1,0 +1,27 @@
+{
+  "best_cv_neg_mse": -0.13088655364024357,
+  "test_rmse": 0.47693258326914467,
+  "test_mae": 0.38225942295999815,
+  "test_r2": 0.8988857503684567,
+  "best_params": {
+    "n_estimators": 201,
+    "max_depth": 6,
+    "learning_rate": 0.08012737503998542,
+    "min_samples_split": 4,
+    "min_samples_leaf": 3,
+    "subsample": 0.7465447373174767,
+    "random_state": 42
+  },
+  "n_trials": 5,
+  "feature_importances": {
+    "avg_solve_time_easy": 0.19121214309903933,
+    "avg_solve_time_medium": 0.1449349907843822,
+    "avg_solve_time_hard": 0.0038796689261157385,
+    "hint_rate": 0.049953746565035984,
+    "error_rate": 0.0777245000287021,
+    "current_streak": 0.004994669972413378,
+    "session_count": 0.3325204398500906,
+    "last_played_difficulty": 0.10576687414772663,
+    "win_rate": 0.08901296662649401
+  }
+}

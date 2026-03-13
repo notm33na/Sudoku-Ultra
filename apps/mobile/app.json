@@ -2,7 +2,7 @@
     "expo": {
         "name": "Sudoku Ultra",
         "slug": "sudoku-ultra",
-        "version": "0.0.1",
+        "version": "0.1.0",
         "orientation": "portrait",
         "icon": "./assets/icon.png",
         "userInterfaceStyle": "automatic",
@@ -12,18 +12,35 @@
             "backgroundColor": "#0f172a"
         },
         "assetBundlePatterns": [
-            "**/*"
+            "**/*",
+            "assets/models/*.onnx",
+            "assets/models/*.tflite"
+        ],
+        "plugins": [
+            "onnxruntime-react-native",
+            [
+                "expo-camera",
+                {
+                    "cameraPermission": "Sudoku Ultra needs camera access to scan printed Sudoku puzzles."
+                }
+            ]
         ],
         "ios": {
             "supportsTablet": true,
-            "bundleIdentifier": "com.sudokuultra.app"
+            "bundleIdentifier": "com.sudokuultra.app",
+            "infoPlist": {
+                "NSCameraUsageDescription": "Sudoku Ultra needs camera access to scan printed Sudoku puzzles."
+            }
         },
         "android": {
             "adaptiveIcon": {
                 "foregroundImage": "./assets/adaptive-icon.png",
                 "backgroundColor": "#0f172a"
             },
-            "package": "com.sudokuultra.app"
+            "package": "com.sudokuultra.app",
+            "permissions": [
+                "android.permission.CAMERA"
+            ]
         },
         "web": {
             "favicon": "./assets/favicon.png"

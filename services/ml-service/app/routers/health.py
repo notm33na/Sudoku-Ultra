@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.model_registry import model_registry
 
 router = APIRouter(tags=["health"])
 
@@ -24,18 +25,11 @@ class HealthResponse(BaseModel):
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Service health check with model status."""
-    # PHASE-2-HOOK: populate model loading status from model registry
     return HealthResponse(
         status="ok",
         service=settings.SERVICE_NAME,
         version=settings.VERSION,
         environment=settings.ENV,
         timestamp=datetime.now(timezone.utc).isoformat(),
-        models_loaded={
-            "difficulty_classifier": False,
-            "adaptive_regression": False,
-            "puzzle_scanner": False,
-            "churn_predictor": False,
-            "skill_clustering": False,
-        },
+        models_loaded=model_registry.list_models(),
     )

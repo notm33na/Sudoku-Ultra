@@ -5,6 +5,7 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { DifficultyScreen } from '../screens/DifficultyScreen';
 import { GameScreen } from '../screens/GameScreen';
 import { ResultScreen } from '../screens/ResultScreen';
+import ScanPuzzleScreen from '../screens/ScanPuzzleScreen';
 import { colors } from '../theme/colors';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -55,6 +56,11 @@ export function RootNavigator() {
                     headerShown: false,
                     gestureEnabled: false,
                 }}
+            />
+            <Stack.Screen
+                name="ScanPuzzle"
+                component={ScanPuzzleScreen}
+                options={{ title: 'Scan Puzzle' }}
             />
         </Stack.Navigator>
     );

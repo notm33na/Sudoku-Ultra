@@ -1,0 +1,77 @@
+{
+  "best_cv_score": 0.9625,
+  "test_accuracy": 1.0,
+  "best_params": {
+    "n_estimators": 218,
+    "max_depth": 48,
+    "min_samples_split": 15,
+    "min_samples_leaf": 6,
+    "max_features": "sqrt",
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "n_trials": 5,
+  "classification_report": {
+    "easy": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 4.0
+    },
+    "extreme": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 3.0
+    },
+    "hard": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 3.0
+    },
+    "medium": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 3.0
+    },
+    "super_easy": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 4.0
+    },
+    "super_hard": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 3.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 20.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 20.0
+    }
+  },
+  "feature_importances": {
+    "clue_count": 0.21435822977098298,
+    "naked_singles": 0.05117283146352342,
+    "hidden_singles": 0.05865955055303673,
+    "naked_pairs": 0.04479703712880227,
+    "pointing_pairs": 0.02178920963995766,
+    "box_line_reduction": 0.03625397691305587,
+    "backtrack_depth": 0.08070679310297428,
+    "constraint_density": 0.21540046084672793,
+    "symmetry_score": 0.03473308342642377,
+    "avg_candidate_count": 0.24212882715451506
+  }
+}

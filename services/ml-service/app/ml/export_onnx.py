@@ -132,8 +132,72 @@ def verify_onnx(onnx_path: Path, n_features: int = 10) -> bool:
         return False
 
 
+def export_scanner_tflite(
+    model_dir: Path | None = None,
+) -> Path | None:
+    """
+    Export the scanner CNN to TFLite for iOS on-device inference.
+
+    Requires: pip install onnx2tf
+    onnx2tf converts the scanner.onnx to a TFLite flatbuffer in ml/models/.
+
+    Returns the .tflite path, or None if onnx2tf is not available.
+    """
+    model_dir = model_dir or MODEL_DIR
+    onnx_path = model_dir / "scanner.onnx"
+    tflite_path = model_dir / "scanner.tflite"
+
+    if tflite_path.exists():
+        print(f"✅ Scanner TFLite already exists: {tflite_path}")
+        return tflite_path
+
+    if not onnx_path.exists():
+        print(f"⚠ scanner.onnx not found — run export_scanner_onnx() first")
+        return None
+
+    try:
+        import onnx2tf  # pip install onnx2tf
+
+        print(f"Converting {onnx_path} → TFLite via onnx2tf...")
+        onnx2tf.convert(
+            input_onnx_file_path=str(onnx_path),
+            output_folder_path=str(model_dir / "_tflite_tmp"),
+            output_tfv1_pb=False,
+            output_saved_model=False,
+            output_keras_v3=False,
+            output_integer_quant_type="int8",  # quantise for mobile
+            quant_type="per-tensor",
+            not_use_onnxsim=False,
+            verbosity="error",
+        )
+        # onnx2tf places the .tflite in the output folder
+        import shutil
+        tmp_dir = model_dir / "_tflite_tmp"
+        candidates = list(tmp_dir.glob("*.tflite"))
+        if candidates:
+            shutil.move(str(candidates[0]), str(tflite_path))
+            shutil.rmtree(str(tmp_dir), ignore_errors=True)
+            print(f"✅ Scanner TFLite exported: {tflite_path}")
+            print(f"   Size: {tflite_path.stat().st_size / 1024:.1f} KB")
+            return tflite_path
+        else:
+            print("❌ onnx2tf ran but produced no .tflite file")
+            return None
+
+    except ImportError:
+        print(
+            "⚠ onnx2tf not installed — TFLite export skipped.\n"
+            "  Install with: pip install onnx2tf\n"
+            "  The app uses scanner.onnx via onnxruntime-react-native as primary path."
+        )
+        return None
+    except Exception as e:
+        print(f"❌ TFLite export failed: {e}")
+        return None
+
+
 if __name__ == "__main__":
-    print("Exporting models to ONNX...\n")
+    print("Exporting models to ONNX + TFLite...\n")
     try:
         classifier_path = export_classifier_onnx()
         verify_onnx(classifier_path, n_features=10)
@@ -142,6 +206,8 @@ if __name__ == "__main__":
 
     print()
     try:
-        export_scanner_onnx()
+        scanner_path = export_scanner_onnx()
+        print()
+        export_scanner_tflite()  # optional — requires onnx2tf
     except FileNotFoundError as e:
         print(f"Skipping scanner: {e}")

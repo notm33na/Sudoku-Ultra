@@ -28,6 +28,8 @@ opencv-python-headless==4.10.0.84
 # Model Export
 onnx==1.16.0
 onnxruntime==1.18.0
+skl2onnx==1.17.0
+# TFLite export (optional, heavy): pip install onnx2tf tensorflow
 
 # Analytics
 duckdb==0.10.3

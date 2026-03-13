@@ -1,15 +1,13 @@
 """
-Model registry — loads and serves ML models.
+Model registry — loads and serves ML models at startup.
 
-Each model is registered with a name. Services request models by name.
-At startup, models are loaded from MLflow or from local files as fallback.
-
-Fully populated as models are trained in Deliverables 2–6.
+Each individual ML service (classifier, scanner, etc.) manages its own model
+object. This registry calls their .load() methods at startup and tracks load
+status for health reporting via list_models().
 """
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from app.logging import setup_logging
@@ -55,33 +53,40 @@ class ModelRegistry:
 
     async def load_all(self) -> None:
         """
-        Load all available models from MLflow or local files.
-        Called at application startup. Gracefully handles missing models.
+        Load all available models from local artifact files.
+        Called at application startup. Missing artifacts are logged as warnings;
+        the service degrades gracefully and routers use heuristic fallbacks.
         """
         logger.info("Loading models from registry...")
 
-        # D2: Difficulty classifier (Random Forest)
-        await self._try_load("difficulty_classifier")
-        # D3: Adaptive regression (Gradient Boosting)
-        await self._try_load("adaptive_regression")
-        # D4: Puzzle scanner (MobileNetV2 ONNX)
-        await self._try_load("puzzle_scanner")
-        # D5: Churn predictor (Logistic Regression)
-        await self._try_load("churn_predictor")
-        # D6: Skill clustering (K-Means)
-        await self._try_load("skill_clustering")
+        # Import singletons here to avoid circular imports at module level.
+        from app.services.classifier_service import classifier
+        from app.services.recommender_service import recommender
+        from app.services.scanner_service import scanner_service
+        from app.services.churn_service import churn_predictor
+        from app.services.clustering_service import skill_clustering_service
 
-        loaded = sum(1 for v in self._models.values() if v is not None)
-        logger.info(f"Model loading complete: {loaded}/{5} models loaded")
+        _services: list[tuple[str, Any]] = [
+            ("difficulty_classifier", classifier),
+            ("adaptive_regression",  recommender),
+            ("puzzle_scanner",       scanner_service),
+            ("churn_predictor",      churn_predictor),
+            ("skill_clustering",     skill_clustering_service),
+        ]
 
-    async def _try_load(self, name: str) -> None:
-        """Attempt to load a single model. Log and continue on failure."""
-        try:
-            # PHASE-2-HOOK: Load from MLflow registry once models are trained
-            # model = mlflow.pyfunc.load_model(f"models:/{name}/Production")
-            logger.info(f"Model '{name}' not yet available — using fallback")
-        except Exception as e:
-            logger.warning(f"Failed to load model '{name}': {e}")
+        for name, service in _services:
+            try:
+                if service.load():
+                    self.register(name, service)
+                else:
+                    logger.warning(
+                        f"Model '{name}' artifact not found — service will use heuristic fallback"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to load model '{name}': {e}")
+
+        loaded = len(self._models)
+        logger.info(f"Model loading complete: {loaded}/5 models loaded")
 
 
 # Singleton instance

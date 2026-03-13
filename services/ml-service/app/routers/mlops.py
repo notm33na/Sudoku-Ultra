@@ -90,11 +90,24 @@ async def check_drift(req: DriftCheckRequest):
 
 # ─── Retraining ────────────────────────────────────────────────────────────────
 
+# Supported model names and their canonical artifact paths.
+_SUPPORTED_MODELS = {
+    "difficulty-classifier",
+    "adaptive-difficulty",
+    "digit-scanner",
+    "skill-clustering",
+    "churn-predictor",
+}
+
 
 class RetrainRequest(BaseModel):
-    model_name: str = Field(..., description="Which model to retrain")
+    model_name: str = Field(..., description=(
+        "Which model to retrain. One of: "
+        "difficulty-classifier, adaptive-difficulty, digit-scanner, "
+        "skill-clustering, churn-predictor"
+    ))
     n_samples: int = Field(10000, ge=100, description="Training samples")
-    n_trials: int = Field(50, ge=5, description="Optuna trials")
+    n_trials: int = Field(50, ge=5, description="Optuna trials (ignored for models without HPO)")
 
 
 @router.post("/retrain")
@@ -103,7 +116,15 @@ async def trigger_retraining(req: RetrainRequest, background_tasks: BackgroundTa
     Trigger model retraining as a background task.
 
     Returns immediately with a job ID. Retraining runs asynchronously.
+    Supported models: difficulty-classifier, adaptive-difficulty,
+    digit-scanner, skill-clustering, churn-predictor.
     """
+    if req.model_name not in _SUPPORTED_MODELS:
+        return {
+            "status": "rejected",
+            "error": f"Unknown model '{req.model_name}'. Supported: {sorted(_SUPPORTED_MODELS)}",
+        }
+
     import uuid
     job_id = str(uuid.uuid4())[:8]
 
@@ -126,11 +147,13 @@ async def _run_retraining(
     job_id: str,
 ) -> None:
     """Execute model retraining (runs in background)."""
+    from app.logging import setup_logging
+    logger = setup_logging()
+
     try:
         if model_name == "difficulty-classifier":
             from app.ml.train_classifier import train_and_save
             metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
-
             model_version_registry.register_model(
                 name="difficulty-classifier",
                 version=f"auto-{job_id}",
@@ -143,7 +166,6 @@ async def _run_retraining(
         elif model_name == "adaptive-difficulty":
             from app.ml.train_regression import train_and_save
             metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
-
             model_version_registry.register_model(
                 name="adaptive-difficulty",
                 version=f"auto-{job_id}",
@@ -153,10 +175,54 @@ async def _run_retraining(
                 tags={"job_id": job_id, "trigger": "api"},
             )
 
+        elif model_name == "digit-scanner":
+            from app.ml.train_scanner import train_and_save
+            # train_scanner uses samples_per_class (per digit class, 10 classes total).
+            # Map n_samples → samples_per_class so the caller interface stays consistent.
+            samples_per_class = max(100, n_samples // 10)
+            metrics = train_and_save(samples_per_class=samples_per_class)
+            model_version_registry.register_model(
+                name="digit-scanner",
+                version=f"auto-{job_id}",
+                model_path="ml/models/scanner.pt",
+                metrics={"best_val_accuracy": metrics["best_val_accuracy"]},
+                stage="staging",
+                tags={"job_id": job_id, "trigger": "api"},
+            )
+
+        elif model_name == "skill-clustering":
+            from app.ml.train_clustering import train_and_save
+            # train_clustering has no Optuna HPO; n_trials is intentionally ignored.
+            metrics = train_and_save(n_samples=n_samples)
+            model_version_registry.register_model(
+                name="skill-clustering",
+                version=f"auto-{job_id}",
+                model_path="ml/models/skill_clustering.pkl",
+                metrics={"silhouette_score": metrics["silhouette_score"]},
+                stage="staging",
+                tags={"job_id": job_id, "trigger": "api"},
+            )
+
+        elif model_name == "churn-predictor":
+            from app.ml.train_churn import train_and_save
+            metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
+            model_version_registry.register_model(
+                name="churn-predictor",
+                version=f"auto-{job_id}",
+                model_path="ml/models/churn_predictor.pkl",
+                metrics={
+                    "test_auc_roc": metrics["test_auc_roc"],
+                    "test_f1": metrics["test_f1"],
+                },
+                stage="staging",
+                tags={"job_id": job_id, "trigger": "api"},
+            )
+
         else:
+            # Should never reach here — validated at the endpoint level above.
             raise ValueError(f"Unknown model: {model_name}")
 
+        logger.info(f"[Retrain] Job {job_id} completed successfully for '{model_name}'")
+
     except Exception as e:
-        from app.logging import setup_logging
-        logger = setup_logging()
-        logger.error(f"[Retrain] Job {job_id} failed: {e}")
+        logger.error(f"[Retrain] Job {job_id} failed for '{model_name}': {e}")

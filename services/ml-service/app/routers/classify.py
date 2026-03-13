@@ -6,10 +6,13 @@ with SHAP-based explanations. Falls back to rule-based if model
 is not loaded.
 """
 
+import time
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.services.classifier_service import classifier
+from app.services.monitoring_service import monitoring_service
 
 router = APIRouter(prefix="/api/v1", tags=["classification"])
 
@@ -52,8 +55,17 @@ async def classify_difficulty(features: PuzzleFeatures) -> ClassificationResult:
     If the ML model is loaded, returns ML prediction with SHAP explanation.
     Otherwise, falls back to rule-based classification.
     """
+    t0 = time.monotonic()
     feature_dict = features.model_dump()
     result = classifier.predict(feature_dict)
+    latency_ms = (time.monotonic() - t0) * 1000
+
+    monitoring_service.record_prediction(
+        model_name="difficulty-classifier",
+        predicted=result["difficulty"],
+        confidence=result["confidence"],
+        latency_ms=latency_ms,
+    )
 
     return ClassificationResult(
         difficulty=result["difficulty"],

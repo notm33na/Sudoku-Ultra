@@ -79,13 +79,12 @@ class ModelVersionRegistry:
         }
 
         if name not in self.manifest["models"]:
-            self.manifest["models"][name] = {"versions": {}}
+            self.manifest["models"][name] = {"versions": {}, "latest": None, "production": None}
 
         self.manifest["models"][name]["versions"][version] = entry
         self.manifest["models"][name]["latest"] = version
-        self.manifest["models"][name]["production"] = None
 
-        # Auto-promote if first version
+        # Auto-promote only when this is the very first version
         if len(self.manifest["models"][name]["versions"]) == 1:
             self.manifest["models"][name]["production"] = version
             entry["stage"] = "production"
