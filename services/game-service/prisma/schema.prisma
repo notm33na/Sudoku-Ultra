@@ -17,12 +17,14 @@ model User {
   username     String   @unique
   passwordHash String   @map("password_hash")
   avatarUrl    String?  @map("avatar_url")
+  fcmToken     String?  @map("fcm_token")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  sessions GameSession[]
-  scores   Score[]
-  streak   Streak?
+  sessions          GameSession[]
+  scores            Score[]
+  streak            Streak?
+  reEngagementQueue ReEngagementQueue[]
 
   @@map("users")
 }
@@ -33,7 +35,7 @@ model Puzzle {
   id         String   @id @default(uuid())
   grid       Json     // Cell[][] as JSON
   solution   Json     // number[][] as JSON
-  difficulty String   // beginner | easy | medium | hard | expert | evil
+  difficulty String   // super_easy | easy | medium | hard | super_hard | extreme
   clueCount  Int      @map("clue_count")
   createdAt  DateTime @default(now()) @map("created_at")
 
@@ -47,18 +49,18 @@ model Puzzle {
 // ─── Game Session ─────────────────────────────────────────────────────────────
 
 model GameSession {
-  id            String   @id @default(uuid())
-  userId        String   @map("user_id")
-  puzzleId      String   @map("puzzle_id")
-  currentGrid   Json     @map("current_grid") // Cell[][] as JSON
-  status        String   @default("in_progress") // in_progress | completed | paused | abandoned
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  puzzleId      String    @map("puzzle_id")
+  currentGrid   Json      @map("current_grid") // Cell[][] as JSON
+  status        String    @default("in_progress") // in_progress | completed | paused | abandoned
   difficulty    String
-  timeElapsedMs Int      @default(0) @map("time_elapsed_ms")
-  score         Int      @default(0)
-  hintsUsed     Int      @default(0) @map("hints_used")
-  errorsCount   Int      @default(0) @map("errors_count")
-  startedAt     DateTime @default(now()) @map("started_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  timeElapsedMs Int       @default(0) @map("time_elapsed_ms")
+  score         Int       @default(0)
+  hintsUsed     Int       @default(0) @map("hints_used")
+  errorsCount   Int       @default(0) @map("errors_count")
+  startedAt     DateTime  @default(now()) @map("started_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
   completedAt   DateTime? @map("completed_at")
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -67,6 +69,7 @@ model GameSession {
 
   @@index([userId])
   @@index([puzzleId])
+  @@index([status, completedAt])
   @@map("game_sessions")
 }
 
@@ -94,11 +97,14 @@ model Score {
 // ─── Streak ───────────────────────────────────────────────────────────────────
 
 model Streak {
-  id             String   @id @default(uuid())
-  userId         String   @unique @map("user_id")
-  currentStreak  Int      @default(0) @map("current_streak")
-  longestStreak  Int      @default(0) @map("longest_streak")
-  lastPlayedDate DateTime? @map("last_played_date")
+  id                  String    @id @default(uuid())
+  userId              String    @unique @map("user_id")
+  currentStreak       Int       @default(0) @map("current_streak")
+  longestStreak       Int       @default(0) @map("longest_streak")
+  lastPlayedDate      DateTime? @map("last_played_date")
+  freezeCount         Int       @default(0) @map("freeze_count")
+  lastFreezeGrantedAt DateTime? @map("last_freeze_granted_at")
+  milestonesAwarded   Json      @default("[]") @map("milestones_awarded")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -116,4 +122,23 @@ model DailyPuzzle {
   puzzle Puzzle @relation(fields: [puzzleId], references: [id])
 
   @@map("daily_puzzles")
+}
+
+// ─── Re-Engagement Queue ──────────────────────────────────────────────────────
+// Populated nightly by churn_risk_scorer Airflow DAG.
+// Notification service polls this table and sends FCM pushes.
+
+model ReEngagementQueue {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  churnProb  Float     @map("churn_prob")
+  riskLevel  String    @map("risk_level") // medium | high | critical
+  notified   Boolean   @default(false)
+  notifiedAt DateTime? @map("notified_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([notified, createdAt])
+  @@map("re_engagement_queue")
 }

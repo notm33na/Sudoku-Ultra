@@ -1,0 +1,84 @@
+# GitHub Actions workflow: ML Model Training
+#
+# Triggers: manual dispatch, weekly schedule, or when training code changes.
+# Trains all ML models, runs tests, and uploads artifacts.
+
+name: ML Model Training
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model to train (all, classifier, regression, scanner, clustering, churn)'
+        required: true
+        default: 'all'
+      n_samples:
+        description: 'Number of training samples'
+        required: false
+        default: '10000'
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly Sunday 2am UTC
+  push:
+    paths:
+      - 'services/ml-service/app/ml/**'
+      - 'services/ml-service/requirements.txt'
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/ml-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: services/ml-service/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install skl2onnx
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+      - name: Train difficulty classifier
+        if: inputs.model == 'all' || inputs.model == 'classifier'
+        run: python -m app.ml.train_classifier
+
+      - name: Train adaptive regression
+        if: inputs.model == 'all' || inputs.model == 'regression'
+        run: python -m app.ml.train_regression
+
+      - name: Train digit scanner
+        if: inputs.model == 'all' || inputs.model == 'scanner'
+        run: python -m app.ml.train_scanner
+
+      - name: Train skill clustering
+        if: inputs.model == 'all' || inputs.model == 'clustering'
+        run: python -m app.ml.train_clustering
+
+      - name: Train churn predictor
+        if: inputs.model == 'all' || inputs.model == 'churn'
+        run: python -m app.ml.train_churn
+
+      - name: Export ONNX models
+        if: inputs.model == 'all' || inputs.model == 'classifier' || inputs.model == 'scanner'
+        run: python -m app.ml.export_onnx
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-models-${{ github.sha }}
+          path: services/ml-service/ml/models/
+          retention-days: 30
+
+      - name: Run post-training tests
+        run: python -m pytest tests/ -v --tb=short
