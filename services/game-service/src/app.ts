@@ -8,6 +8,7 @@ import puzzleRoutes from './routes/puzzle.routes';
 import sessionRoutes from './routes/session.routes';
 import scoreRoutes from './routes/score.routes';
 import dailyRoutes from './routes/daily.routes';
+import homeRoutes from './routes/home.routes';
 
 // ─── Express App Factory ──────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ export function createApp() {
     app.use('/api/sessions', sessionRoutes);
     app.use('/api/scores', scoreRoutes);
     app.use('/api/daily', dailyRoutes);
+    app.use('/api/home', homeRoutes);
 
     // ── 404 Handler ───────────────────────────────────────────────────────────
     app.use((_req, res) => {

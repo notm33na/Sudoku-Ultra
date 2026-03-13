@@ -4,6 +4,7 @@ import { prisma } from '../prisma/client';
 import { AppError } from '../middleware/errorHandler';
 import { CreateSessionInput, UpdateSessionInput, CompleteSessionInput } from '../schemas';
 import { getPuzzleWithSolution } from './puzzle.service';
+import { kafkaService } from './kafka.service';
 
 // ─── Create Session ───────────────────────────────────────────────────────────
 
@@ -176,6 +177,19 @@ export async function completeSession(
             difficulty: session.difficulty,
             completedAt: now,
         },
+    });
+
+    // Publish analytics event to Kafka — fire-and-forget, never blocks gameplay
+    kafkaService.publishSessionCompleted({
+        user_id: userId,
+        puzzle_id: session.puzzleId,
+        session_id: sessionId,
+        difficulty: session.difficulty,
+        time_elapsed_ms: input.timeElapsedMs,
+        score: finalScore,
+        hints_used: session.hintsUsed,
+        errors_count: session.errorsCount,
+        completed_at: now.toISOString(),
     });
 
     return {

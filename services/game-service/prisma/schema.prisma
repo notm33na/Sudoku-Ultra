@@ -17,9 +17,11 @@ model User {
   username     String   @unique
   passwordHash String   @map("password_hash")
   avatarUrl    String?  @map("avatar_url")
-  fcmToken     String?  @map("fcm_token")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  fcmToken         String?   @map("fcm_token")
+  skillCluster     String?   @map("skill_cluster")      // Beginner | Casual | Intermediate | Advanced | Expert
+  skillClusteredAt DateTime? @map("skill_clustered_at") // last time cluster was assigned
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   sessions          GameSession[]
   scores            Score[]
