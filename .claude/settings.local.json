@@ -13,7 +13,11 @@
       "Bash(git -C d:/Sudoku-Ultra log --oneline -30)",
       "Bash(git -C d:/Sudoku-Ultra show b195cf7 --stat)",
       "Bash(find d:/Sudoku-Ultra -name *.py -path */airflow* -o -name dag_*.py -o -name *_dag.py)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(go mod:*)",
+      "Bash(go build:*)",
+      "Bash(go get:*)",
+      "Bash(go test:*)"
     ]
   }
 }
