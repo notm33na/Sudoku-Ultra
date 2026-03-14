@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Port            string
 	GameServiceURL  string
+	BotServiceURL   string // ml-service endpoint for bot moves
 	RedisURL        string
 	JWTSecret       string
 	MaxRoomPlayers  int
@@ -19,11 +20,24 @@ type Config struct {
 	LogLevel        string
 }
 
+// BotDelayRange returns the [min, max] delay in milliseconds for a given bot tier.
+func (c *Config) BotDelayRange(tier string) (minMs, maxMs int) {
+	switch tier {
+	case "hard":
+		return 100, 300
+	case "medium":
+		return 200, 500
+	default: // easy
+		return 500, 2000
+	}
+}
+
 // Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
 	return &Config{
 		Port:            getEnv("PORT", "3002"),
 		GameServiceURL:  getEnv("GAME_SERVICE_URL", "http://game-service:3001"),
+		BotServiceURL:   getEnv("BOT_SERVICE_URL", "http://ml-service:8000"),
 		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
 		JWTSecret:       getEnv("JWT_SECRET", "dev-secret-change-in-production"),
 		MaxRoomPlayers:  getEnvInt("MAX_ROOM_PLAYERS", 2),

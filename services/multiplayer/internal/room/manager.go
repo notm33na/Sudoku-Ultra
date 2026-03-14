@@ -1,6 +1,7 @@
 package room
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -247,6 +248,11 @@ func (m *Manager) RunCountdown(rm *Room) {
 			},
 		})
 		m.log.Info("game started", zap.String("room_id", rm.ID()))
+
+		// If this is a bot room, start the bot move loop.
+		if rm.Type() == models.RoomTypeBot {
+			m.RunBotLoop(rm)
+		}
 	}()
 }
 
@@ -321,6 +327,182 @@ func (m *Manager) scheduleCleanup(roomID string) {
 		m.mu.Unlock()
 		m.log.Info("room cleaned up", zap.String("room_id", roomID))
 	}()
+}
+
+// ─── Bot Rooms ────────────────────────────────────────────────────────────────
+
+// botPlayerID is the fixed userID used for the bot slot in bot rooms.
+const botPlayerID = "bot"
+
+// CreateBotRoom creates a private room, adds the human creator, and pre-adds
+// a bot player (IsBot=true, Ready=true). The human still needs to press ready
+// before the countdown starts.
+func (m *Manager) CreateBotRoom(
+	ctx context.Context,
+	creatorID, creatorName, botTier string,
+	req models.CreateRoomRequest,
+) (*Room, error) {
+	puzzle, solution, err := m.fetchPuzzle(ctx, req.Difficulty)
+	if err != nil {
+		return nil, fmt.Errorf("fetch puzzle for bot room: %w", err)
+	}
+
+	id := uuid.New().String()
+	rm := NewRoom(id, "", creatorID, models.RoomTypeBot, req.Difficulty, puzzle, solution, m.broadcastFn)
+	rm.data.BotTier = botTier
+
+	human := &models.Player{UserID: creatorID, DisplayName: creatorName}
+	bot := &models.Player{UserID: botPlayerID, DisplayName: "Bot (" + botTier + ")", IsBot: true, Ready: true}
+
+	if err := rm.AddPlayer(human, m.cfg.MaxRoomPlayers); err != nil {
+		return nil, err
+	}
+	if err := rm.AddPlayer(bot, m.cfg.MaxRoomPlayers); err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	m.rooms[id] = rm
+	m.mu.Unlock()
+
+	metrics.ActiveRooms.Inc()
+	metrics.RoomsCreatedTotal.WithLabelValues("bot").Inc()
+	m.log.Info("bot room created",
+		zap.String("room_id", id),
+		zap.String("creator", creatorID),
+		zap.String("tier", botTier),
+	)
+	return rm, nil
+}
+
+// RunBotLoop starts the bot move loop after the game starts.
+// Called from RunCountdown once StartGame() has been issued.
+// The loop polls the ml-service bot endpoint at tier-specific intervals
+// and applies moves until the room finishes.
+func (m *Manager) RunBotLoop(rm *Room) {
+	tier := rm.BotTier()
+	minMs, maxMs := m.cfg.BotDelayRange(tier)
+
+	go func() {
+		for {
+			if rm.IsFinished() {
+				return
+			}
+
+			// Randomised delay within tier range.
+			delay := time.Duration(minMs+rand.Intn(maxMs-minMs+1)) * time.Millisecond
+			time.Sleep(delay)
+
+			if rm.IsFinished() {
+				return
+			}
+			if rm.State() != models.StateInProgress {
+				continue
+			}
+
+			// Fetch bot's current board and the room solution.
+			boardPtr, solutionPtr := rm.BotBoard()
+			if boardPtr == nil {
+				return // bot player not found
+			}
+			board, solution := *boardPtr, *solutionPtr
+			_ = solution // used in fetchBotMove below
+
+			// Call ml-service for the next move.
+			move, err := m.fetchBotMove(tier, board, *solutionPtr)
+			if err != nil {
+				m.log.Warn("bot move fetch failed", zap.Error(err))
+				continue
+			}
+
+			// Apply the move as if it came from the bot player.
+			correct, complete, err := rm.ApplyCell(botPlayerID, move.CellIndex, move.Digit)
+			if err != nil || !correct {
+				m.log.Debug("bot applied invalid move", zap.Error(err))
+				continue
+			}
+
+			// Broadcast opponent-cell to human players.
+			m.broadcastFn(rm.ID(), models.OutboundMessage{
+				Type: models.MsgOpponentCell,
+				Payload: models.OpponentCellPayload{
+					UserID:    botPlayerID,
+					CellIndex: move.CellIndex,
+				},
+			})
+
+			// Broadcast bot progress.
+			view := rm.View()
+			if bp, ok := view.Players[botPlayerID]; ok {
+				m.broadcastFn(rm.ID(), models.OutboundMessage{
+					Type: models.MsgOpponentProgress,
+					Payload: models.OpponentProgressPayload{
+						UserID:      botPlayerID,
+						CellsFilled: bp.CellsFilled,
+					},
+				})
+			}
+
+			if complete {
+				m.FinishRoom(rm, botPlayerID, models.EndReasonCompleted)
+				m.broadcastFn(rm.ID(), models.OutboundMessage{
+					Type: models.MsgGameEnd,
+					Payload: models.GameEndPayload{
+						WinnerID: botPlayerID,
+						Reason:   models.EndReasonCompleted,
+					},
+				})
+				return
+			}
+		}
+	}()
+}
+
+// botMoveResult is the shape returned by POST /api/v1/bot/move.
+type botMoveResult struct {
+	CellIndex  int     `json:"cell_index"`
+	Digit      int     `json:"digit"`
+	Confidence float64 `json:"confidence"`
+	Source     string  `json:"source"`
+}
+
+// fetchBotMove calls the ml-service bot endpoint.
+func (m *Manager) fetchBotMove(tier string, board, solution [81]int) (*botMoveResult, error) {
+	payload := map[string]any{
+		"board":    board[:],
+		"solution": solution[:],
+		"tier":     tier,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	url := m.cfg.BotServiceURL + "/api/v1/bot/move"
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("bot-service unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bot-service returned %d", resp.StatusCode)
+	}
+
+	var result botMoveResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode bot move response: %w", err)
+	}
+	return &result, nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

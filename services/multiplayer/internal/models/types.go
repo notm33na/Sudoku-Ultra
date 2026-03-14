@@ -58,8 +58,9 @@ type Room struct {
 	Type       RoomType  `json:"type"`
 	State      RoomState `json:"state"`
 	Difficulty string    `json:"difficulty"`
-	Puzzle     [81]int   `json:"puzzle"`   // given cells (0 = empty)
-	Solution   [81]int   `json:"solution"` // authoritative solution
+	BotTier    string    `json:"bot_tier,omitempty"` // "easy"|"medium"|"hard" for bot rooms
+	Puzzle     [81]int   `json:"puzzle"`             // given cells (0 = empty)
+	Solution   [81]int   `json:"solution"`           // authoritative solution
 	Players    map[string]*Player `json:"players"` // userID → Player
 	CreatorID  string    `json:"creator_id"`
 	CreatedAt  time.Time `json:"created_at"`

@@ -83,6 +83,25 @@ func (h *HTTP) CreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bot rooms: delegate to CreateBotRoom (pre-adds bot player + creator).
+	if req.Type == models.RoomTypeBot {
+		botTier := req.BotTier
+		if botTier == "" {
+			botTier = "medium"
+		}
+		rm, err := h.manager.CreateBotRoom(ctx, userID, displayName, botTier, req)
+		if err != nil {
+			h.log.Error("create bot room error", zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "CREATE_ROOM_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, models.CreateRoomResponse{
+			RoomID: rm.ID(),
+			Type:   models.RoomTypeBot,
+		})
+		return
+	}
+
 	rm, err := h.manager.CreateRoom(ctx, userID, req)
 	if err != nil {
 		h.log.Error("create room error", zap.Error(err))

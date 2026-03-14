@@ -367,6 +367,42 @@ func (r *Room) OpponentID(myUserID string) string {
 	return ""
 }
 
+// BotTier returns the bot difficulty tier for bot rooms.
+func (r *Room) BotTier() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.data.BotTier
+}
+
+// SetBotTier sets the bot difficulty tier.
+func (r *Room) SetBotTier(tier string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.data.BotTier = tier
+}
+
+// Solution returns the authoritative puzzle solution (used by bot loop).
+func (r *Room) Solution() [81]int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.data.Solution
+}
+
+// BotBoard returns the bot player's current board state and the room solution,
+// or nil if there is no bot player.
+func (r *Room) BotBoard() (board, solution *[81]int) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.data.Players {
+		if p.IsBot {
+			b := p.Board
+			s := r.data.Solution
+			return &b, &s
+		}
+	}
+	return nil, nil
+}
+
 // BroadcastRoomState sends the current room view to all players.
 func (r *Room) BroadcastRoomState() {
 	view := r.View()

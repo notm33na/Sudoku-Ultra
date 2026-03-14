@@ -57,6 +57,11 @@ func (ws *WS) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// PHASE-4-HOOK: spectator mode — allow a third connection type that receives
+	// MsgOpponentCell / MsgOpponentProgress broadcasts but cannot send MsgCellFill
+	// or MsgReady. Spectators join via GET /rooms/:id/ws?role=spectator.
+	// Implement spectator role gating, separate hub channel, and view-only client here.
+
 	// If the player is reconnecting, mark them connected again.
 	isReconnect := rm.HasPlayer(userID)
 	if !isReconnect {

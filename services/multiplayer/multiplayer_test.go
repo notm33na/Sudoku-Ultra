@@ -478,3 +478,119 @@ func TestWS_PingPong(t *testing.T) {
 	_ = ping
 	t.Fatal("did not receive pong within 3 messages")
 }
+
+// ─── Bot Room Tests ───────────────────────────────────────────────────────────
+
+func TestRoom_BotTier_StoredAndRetrieved(t *testing.T) {
+	r := room.NewRoom("r1", "", "u1", models.RoomTypeBot, "hard",
+		[81]int{}, [81]int{}, noopBroadcast)
+	r.SetBotTier("hard")
+	if r.BotTier() != "hard" {
+		t.Fatalf("expected BotTier=hard, got %q", r.BotTier())
+	}
+}
+
+func TestRoom_BotBoard_ReturnsNilWithNoBot(t *testing.T) {
+	r := room.NewRoom("r1", "", "u1", models.RoomTypePrivate, "easy",
+		[81]int{}, [81]int{}, noopBroadcast)
+	r.AddPlayer(&models.Player{UserID: "u1"}, 2)
+
+	board, sol := r.BotBoard()
+	if board != nil || sol != nil {
+		t.Fatal("expected nil board and solution when no bot player")
+	}
+}
+
+func TestRoom_BotBoard_ReturnsBotPlayerBoard(t *testing.T) {
+	r := room.NewRoom("r1", "", "u1", models.RoomTypeBot, "easy",
+		[81]int{}, [81]int{1: 5}, noopBroadcast)
+	r.AddPlayer(&models.Player{UserID: "u1"}, 2)
+	r.AddPlayer(&models.Player{UserID: "bot", IsBot: true}, 2)
+
+	board, _ := r.BotBoard()
+	if board == nil {
+		t.Fatal("expected non-nil board for bot player")
+	}
+}
+
+func TestManager_CreateBotRoom_HasTwoPlayers(t *testing.T) {
+	mockPuzzle := models.PuzzleResponse{Difficulty: "easy"}
+	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(mockPuzzle)
+	}))
+	defer mockSrv.Close()
+
+	cfg := testConfig()
+	cfg.GameServiceURL = mockSrv.URL
+	m := room.NewManager(cfg, testLogger())
+	m.SetBroadcastFn(noopBroadcast)
+
+	rm, err := m.CreateBotRoom(
+		context.Background(),
+		"u1", "Alice", "medium",
+		models.CreateRoomRequest{Type: models.RoomTypeBot, Difficulty: "easy"},
+	)
+	if err != nil {
+		t.Fatalf("CreateBotRoom: %v", err)
+	}
+	if rm.PlayerCount() != 2 {
+		t.Fatalf("expected 2 players (human + bot), got %d", rm.PlayerCount())
+	}
+}
+
+func TestManager_CreateBotRoom_BotIsReadyHumanIsNot(t *testing.T) {
+	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(models.PuzzleResponse{Difficulty: "medium"})
+	}))
+	defer mockSrv.Close()
+
+	cfg := testConfig()
+	cfg.GameServiceURL = mockSrv.URL
+	m := room.NewManager(cfg, testLogger())
+	m.SetBroadcastFn(noopBroadcast)
+
+	rm, err := m.CreateBotRoom(
+		context.Background(),
+		"u1", "Alice", "easy",
+		models.CreateRoomRequest{Type: models.RoomTypeBot, Difficulty: "medium"},
+	)
+	if err != nil {
+		t.Fatalf("CreateBotRoom: %v", err)
+	}
+
+	view := rm.View()
+	botReady, humanReady := false, false
+	for _, p := range view.Players {
+		if p.IsBot {
+			botReady = p.Ready
+		} else {
+			humanReady = p.Ready
+		}
+	}
+	if !botReady {
+		t.Fatal("bot player must be ready immediately")
+	}
+	if humanReady {
+		t.Fatal("human player must not be auto-ready")
+	}
+}
+
+func TestConfig_BotDelayRange(t *testing.T) {
+	cfg := testConfig()
+	cases := []struct {
+		tier   string
+		minExp int
+		maxExp int
+	}{
+		{"easy", 500, 2000},
+		{"medium", 200, 500},
+		{"hard", 100, 300},
+		{"unknown", 500, 2000}, // defaults to easy range
+	}
+	for _, tc := range cases {
+		min, max := cfg.BotDelayRange(tc.tier)
+		if min != tc.minExp || max != tc.maxExp {
+			t.Errorf("tier=%s: got [%d,%d], want [%d,%d]", tc.tier, min, max, tc.minExp, tc.maxExp)
+		}
+	}
+}
