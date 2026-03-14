@@ -300,14 +300,78 @@ func (m *Manager) StartReconnectTimer(rm *Room, disconnectedUserID string) {
 // ─── Cleanup ──────────────────────────────────────────────────────────────────
 
 // FinishRoom marks the room finished and schedules its removal.
+// For human-vs-human matches it fires a non-blocking POST to game-service to
+// record the result and update Elo ratings.
 func (m *Manager) FinishRoom(rm *Room, winnerID string, reason models.EndReason) {
 	if rm.IsFinished() {
 		return
 	}
+	durationMs := int(time.Since(rm.CreatedAt()).Milliseconds())
 	rm.Finish(winnerID, reason)
 	metrics.RoomDuration.Observe(time.Since(rm.CreatedAt()).Seconds())
 	metrics.ActiveRooms.Dec()
 	m.scheduleCleanup(rm.ID())
+
+	// Only record Elo for human-vs-human matches.
+	if rm.Type() == models.RoomTypeBot {
+		return
+	}
+	view := rm.View()
+	loserID := ""
+	for uid := range view.Players {
+		if uid != winnerID {
+			loserID = uid
+			break
+		}
+	}
+	if loserID == "" || m.cfg.GameServiceURL == "" {
+		return
+	}
+	go m.postMatchResult(rm.ID(), winnerID, loserID, string(reason), durationMs, view.Difficulty)
+}
+
+// postMatchResult fires a POST to game-service /api/ratings/match-result.
+// Runs in a goroutine; failures are logged but do not affect game flow.
+func (m *Manager) postMatchResult(
+	roomID, winnerID, loserID, endReason string,
+	durationMs int,
+	difficulty string,
+) {
+	body, err := json.Marshal(map[string]any{
+		"roomId":     roomID,
+		"winnerId":   winnerID,
+		"loserId":    loserID,
+		"endReason":  endReason,
+		"durationMs": durationMs,
+		"difficulty": difficulty,
+	})
+	if err != nil {
+		m.log.Error("postMatchResult: marshal failed", zap.Error(err))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		m.cfg.GameServiceURL+"/api/ratings/match-result", bytes.NewReader(body))
+	if err != nil {
+		m.log.Error("postMatchResult: build request failed", zap.Error(err))
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", m.cfg.InternalSecret)
+
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		m.log.Warn("postMatchResult: game-service unreachable", zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		m.log.Warn("postMatchResult: unexpected status", zap.Int("status", resp.StatusCode))
+	}
 }
 
 // scheduleCleanup removes the room from the map after a 60s grace period

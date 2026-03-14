@@ -107,20 +107,24 @@ const (
 	MsgCellFill MsgType = "cell_fill"
 	MsgForfeit  MsgType = "forfeit"
 	MsgPing     MsgType = "ping"
+	MsgChatSend MsgType = "chat" // chat message from client
 
 	// Outbound (server → client)
-	MsgRoomState       MsgType = "room_state"
-	MsgPlayerJoined    MsgType = "player_joined"
-	MsgPlayerLeft      MsgType = "player_left"
-	MsgReadyChanged    MsgType = "ready_changed"
-	MsgCountdown       MsgType = "countdown"
-	MsgGameStart       MsgType = "game_start"
-	MsgOpponentCell    MsgType = "opponent_cell"    // cell index only, no value
+	MsgRoomState        MsgType = "room_state"
+	MsgPlayerJoined     MsgType = "player_joined"
+	MsgPlayerLeft       MsgType = "player_left"
+	MsgReadyChanged     MsgType = "ready_changed"
+	MsgCountdown        MsgType = "countdown"
+	MsgGameStart        MsgType = "game_start"
+	MsgOpponentCell     MsgType = "opponent_cell" // cell index only, no value
 	MsgOpponentProgress MsgType = "opponent_progress"
-	MsgGameEnd         MsgType = "game_end"
-	MsgError           MsgType = "error"
-	MsgPong            MsgType = "pong"
-	MsgReconnected     MsgType = "reconnected"
+	MsgGameEnd          MsgType = "game_end"
+	MsgError            MsgType = "error"
+	MsgPong             MsgType = "pong"
+	MsgReconnected      MsgType = "reconnected"
+	MsgChatMessage      MsgType = "chat_message" // relayed chat message
+	MsgChatBlocked      MsgType = "chat_blocked" // toxic message blocked
+	MsgChatMuted        MsgType = "chat_muted"   // sender is muted
 )
 
 // InboundMessage is the envelope for all messages received from a client.
@@ -169,6 +173,23 @@ type GameEndPayload struct {
 type ErrorPayload struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// ─── Chat Payloads ────────────────────────────────────────────────────────────
+
+// ChatMessagePayload is broadcast to all room members when a message is relayed.
+type ChatMessagePayload struct {
+	SenderID    string `json:"sender_id"`
+	DisplayName string `json:"display_name"`
+	Text        string `json:"text"`
+	Timestamp   string `json:"timestamp"` // RFC3339
+}
+
+// ChatBlockedPayload is sent to the sender when a message is rejected.
+type ChatBlockedPayload struct {
+	Warning   int    `json:"warning"`   // 1, 2, or 3
+	Remaining int    `json:"remaining"` // warnings before mute
+	Message   string `json:"message"`
 }
 
 // ─── HTTP Request/Response Bodies ────────────────────────────────────────────

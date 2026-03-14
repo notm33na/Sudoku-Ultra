@@ -8,6 +8,26 @@ import (
 	"github.com/sudoku-ultra/multiplayer/internal/models"
 )
 
+// ChatEntry is a single chat message stored in the room's ring buffer.
+type ChatEntry struct {
+	SenderID    string
+	DisplayName string
+	Text        string
+	Timestamp   string // RFC3339
+}
+
+// NewChatEntry builds a ChatEntry stamped with the current UTC time.
+func NewChatEntry(senderID, displayName, text string) ChatEntry {
+	return ChatEntry{
+		SenderID:    senderID,
+		DisplayName: displayName,
+		Text:        text,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+const chatHistoryCap = 50
+
 // Room wraps models.Room with a mutex and the broadcast function needed for
 // state-change notifications. All mutations must be made under mu.
 type Room struct {
@@ -20,6 +40,13 @@ type Room struct {
 
 	// countdownCancel cancels an in-progress countdown if a player unreadies.
 	countdownCancel func()
+
+	// ── Chat state (protected by mu) ──────────────────────────────────────────
+	chatBuf      [chatHistoryCap]ChatEntry // ring buffer
+	chatHead     int                       // next write position
+	chatStored   int                       // entries stored (≤ chatHistoryCap)
+	chatWarnings map[string]int            // userID → warning count
+	mutedUsers   map[string]bool           // userID → muted for session
 }
 
 // NewRoom constructs a Room and populates it from a CreateRoomRequest.
@@ -401,6 +428,63 @@ func (r *Room) BotBoard() (board, solution *[81]int) {
 		}
 	}
 	return nil, nil
+}
+
+// ─── Chat ─────────────────────────────────────────────────────────────────────
+
+// AddChat appends a message to the 50-message ring buffer.
+// Thread-safe; call without holding mu.
+func (r *Room) AddChat(entry ChatEntry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.chatBuf[r.chatHead] = entry
+	r.chatHead = (r.chatHead + 1) % chatHistoryCap
+	if r.chatStored < chatHistoryCap {
+		r.chatStored++
+	}
+}
+
+// ChatHistory returns the last N messages in chronological order.
+func (r *Room) ChatHistory() []ChatEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.chatStored == 0 {
+		return nil
+	}
+	msgs := make([]ChatEntry, r.chatStored)
+	start := (r.chatHead - r.chatStored + chatHistoryCap) % chatHistoryCap
+	for i := 0; i < r.chatStored; i++ {
+		msgs[i] = r.chatBuf[(start+i)%chatHistoryCap]
+	}
+	return msgs
+}
+
+// IsUserMuted returns true if the user has been muted for this session.
+func (r *Room) IsUserMuted(userID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.mutedUsers != nil && r.mutedUsers[userID]
+}
+
+// RecordChatWarning increments the warning counter and returns the new count.
+func (r *Room) RecordChatWarning(userID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.chatWarnings == nil {
+		r.chatWarnings = make(map[string]int)
+	}
+	r.chatWarnings[userID]++
+	return r.chatWarnings[userID]
+}
+
+// MuteUser marks a user as muted for the remainder of the session.
+func (r *Room) MuteUser(userID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.mutedUsers == nil {
+		r.mutedUsers = make(map[string]bool)
+	}
+	r.mutedUsers[userID] = true
 }
 
 // BroadcastRoomState sends the current room view to all players.

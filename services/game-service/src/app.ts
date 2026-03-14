@@ -9,6 +9,7 @@ import sessionRoutes from './routes/session.routes';
 import scoreRoutes from './routes/score.routes';
 import dailyRoutes from './routes/daily.routes';
 import homeRoutes from './routes/home.routes';
+import ratingRoutes from './routes/rating.routes';
 
 // ─── Express App Factory ──────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ export function createApp() {
     app.use('/api/scores', scoreRoutes);
     app.use('/api/daily', dailyRoutes);
     app.use('/api/home', homeRoutes);
+    app.use('/api/ratings', ratingRoutes);
 
     // ── 404 Handler ───────────────────────────────────────────────────────────
     app.use((_req, res) => {

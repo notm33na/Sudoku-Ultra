@@ -54,7 +54,7 @@ func main() {
 	manager.SetBroadcastFn(h.Broadcast)
 
 	httpH := handlers.NewHTTP(manager, cfg.JWTSecret, log)
-	wsHandler = handlers.NewWS(h, manager, cfg.JWTSecret, log)
+	wsHandler = handlers.NewWS(h, manager, cfg.JWTSecret, cfg.MLServiceURL, log)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 

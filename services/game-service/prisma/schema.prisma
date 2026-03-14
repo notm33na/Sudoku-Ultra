@@ -27,6 +27,7 @@ model User {
   scores            Score[]
   streak            Streak?
   reEngagementQueue ReEngagementQueue[]
+  playerRating      PlayerRating?
 
   @@map("users")
 }
@@ -143,4 +144,44 @@ model ReEngagementQueue {
 
   @@index([notified, createdAt])
   @@map("re_engagement_queue")
+}
+
+// ─── Multiplayer Rating ───────────────────────────────────────────────────────
+
+model PlayerRating {
+  id          String    @id @default(uuid())
+  userId      String    @unique @map("user_id")
+  eloRating   Int       @default(1200) @map("elo_rating")
+  wins        Int       @default(0)
+  losses      Int       @default(0)
+  lastMatchAt DateTime? @map("last_match_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([eloRating(sort: Desc)])
+  @@map("player_ratings")
+}
+
+// ─── Multiplayer Match History ────────────────────────────────────────────────
+
+model MultiplayerMatch {
+  id              String   @id @default(uuid())
+  roomId          String   @map("room_id")
+  winnerId        String   @map("winner_id")
+  loserId         String   @map("loser_id")
+  winnerEloBefore Int      @map("winner_elo_before")
+  winnerEloAfter  Int      @map("winner_elo_after")
+  loserEloBefore  Int      @map("loser_elo_before")
+  loserEloAfter   Int      @map("loser_elo_after")
+  endReason       String   @map("end_reason")
+  durationMs      Int      @map("duration_ms")
+  difficulty      String
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([winnerId])
+  @@index([loserId])
+  @@index([createdAt(sort: Desc)])
+  @@map("multiplayer_matches")
 }

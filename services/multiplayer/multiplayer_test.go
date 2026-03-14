@@ -62,7 +62,7 @@ func buildTestServer(t *testing.T, cfg *config.Config) (*httptest.Server, *room.
 	m.SetBroadcastFn(h.Broadcast)
 
 	httpH := handlers.NewHTTP(m, cfg.JWTSecret, testLogger())
-	wsH = handlers.NewWS(h, m, cfg.JWTSecret, testLogger())
+	wsH = handlers.NewWS(h, m, cfg.JWTSecret, "", testLogger())
 
 	r := chi.NewRouter()
 	r.Get("/health", healthHandler())
@@ -592,5 +592,252 @@ func TestConfig_BotDelayRange(t *testing.T) {
 		if min != tc.minExp || max != tc.maxExp {
 			t.Errorf("tier=%s: got [%d,%d], want [%d,%d]", tc.tier, min, max, tc.minExp, tc.maxExp)
 		}
+	}
+}
+
+// ─── Chat Tests ───────────────────────────────────────────────────────────────
+
+func TestRoom_Chat_AddAndRetrieve(t *testing.T) {
+	r := room.NewRoom("r1", "", "u1", models.RoomTypePrivate, "easy",
+		[81]int{}, [81]int{}, noopBroadcast)
+
+	r.AddChat(room.NewChatEntry("u1", "Alice", "Good game!"))
+	r.AddChat(room.NewChatEntry("u2", "Bob", "Thanks!"))
+
+	history := r.ChatHistory()
+	if len(history) != 2 {
+		t.Fatalf("expected 2 chat entries, got %d", len(history))
+	}
+	if history[0].Text != "Good game!" {
+		t.Errorf("expected first message 'Good game!', got %q", history[0].Text)
+	}
+	if history[1].SenderID != "u2" {
+		t.Errorf("expected second sender 'u2', got %q", history[1].SenderID)
+	}
+}
+
+func TestRoom_Chat_EmptyHistoryReturnsNil(t *testing.T) {
+	r := room.NewRoom("r1", "", "u1", models.RoomTypePrivate, "easy",
+		[81]int{}, [81]int{}, noopBroadcast)
+
+	history := r.ChatHistory()
+	if history != nil {
+		t.Fatalf("expected nil history, got %v", history)
+	}
+}
+
+func TestRoom_Chat_RingBufferWraps(t *testing.T) {
+	r := room.NewRoom("r1", "", "u1", models.RoomTypePrivate, "easy",
+		[81]int{}, [81]int{}, noopBroadcast)
+
+	// Fill beyond the 50-message cap.
+	for i := 0; i < 55; i++ {
+		r.AddChat(room.NewChatEntry("u1", "Alice", strings.Repeat("x", i+1)))
+	}
+
+	history := r.ChatHistory()
+	if len(history) != 50 {
+		t.Fatalf("expected 50 entries (ring buffer cap), got %d", len(history))
+	}
+	// The oldest retained message should be the 6th added (index 5, length 6).
+	if len(history[0].Text) != 6 {
+		t.Errorf("expected first retained message length=6, got %d", len(history[0].Text))
+	}
+}
+
+func TestRoom_Chat_TimestampIsRFC3339(t *testing.T) {
+	entry := room.NewChatEntry("u1", "Alice", "hello")
+	_, err := time.Parse(time.RFC3339, entry.Timestamp)
+	if err != nil {
+		t.Errorf("timestamp not RFC3339: %v", err)
+	}
+}
+
+func TestRoom_Chat_WarningAndMute(t *testing.T) {
+	r := room.NewRoom("r1", "", "u1", models.RoomTypePrivate, "easy",
+		[81]int{}, [81]int{}, noopBroadcast)
+
+	if r.IsUserMuted("u1") {
+		t.Fatal("user must not be muted initially")
+	}
+
+	w1 := r.RecordChatWarning("u1")
+	w2 := r.RecordChatWarning("u1")
+	if w1 != 1 || w2 != 2 {
+		t.Errorf("expected warnings 1,2 got %d,%d", w1, w2)
+	}
+
+	r.MuteUser("u1")
+	if !r.IsUserMuted("u1") {
+		t.Fatal("user must be muted after MuteUser()")
+	}
+
+	// Another user must not be affected.
+	if r.IsUserMuted("u2") {
+		t.Fatal("u2 must not be muted")
+	}
+}
+
+func TestRoom_Chat_MuteDoesNotAffectOtherUsers(t *testing.T) {
+	r := room.NewRoom("r1", "", "u1", models.RoomTypePrivate, "easy",
+		[81]int{}, [81]int{}, noopBroadcast)
+	r.MuteUser("u1")
+
+	if r.IsUserMuted("u2") {
+		t.Fatal("muting u1 must not mute u2")
+	}
+}
+
+func TestWS_Chat_MutedUserBlocked(t *testing.T) {
+	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(models.PuzzleResponse{Difficulty: "easy"})
+	}))
+	defer mockSrv.Close()
+
+	cfg := testConfig()
+	cfg.GameServiceURL = mockSrv.URL
+	srv, m := buildTestServer(t, cfg)
+	defer srv.Close()
+
+	rm, err := m.CreateRoom(context.Background(), "u1", models.CreateRoomRequest{
+		Type:       models.RoomTypePrivate,
+		Difficulty: "easy",
+	})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	// Pre-mute u1 directly on the room.
+	rm.MuteUser("u1")
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") +
+		"/rooms/" + rm.ID() + "/ws?token=u1:Alice"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Send a chat message as a muted user.
+	chatPayload, _ := json.Marshal(models.InboundMessage{
+		Type:    models.MsgChatSend,
+		Payload: map[string]any{"text": "hello"},
+	})
+	conn.WriteMessage(websocket.TextMessage, chatPayload)
+
+	// Read messages until we see MsgChatMuted (join messages arrive first).
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for i := 0; i < 5; i++ {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		var out models.OutboundMessage
+		json.Unmarshal(raw, &out)
+		if out.Type == models.MsgChatMuted {
+			return // success
+		}
+	}
+	t.Fatal("did not receive MsgChatMuted")
+}
+
+func TestWS_Chat_CleanMessageBroadcast(t *testing.T) {
+	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(models.PuzzleResponse{Difficulty: "easy"})
+	}))
+	defer mockSrv.Close()
+
+	cfg := testConfig()
+	cfg.GameServiceURL = mockSrv.URL
+	srv, m := buildTestServer(t, cfg)
+	defer srv.Close()
+
+	rm, err := m.CreateRoom(context.Background(), "u1", models.CreateRoomRequest{
+		Type:       models.RoomTypePrivate,
+		Difficulty: "easy",
+	})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") +
+		"/rooms/" + rm.ID() + "/ws?token=u1:Alice"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Send a clean chat message (no mlServiceURL set → fail-open, message passes).
+	chatPayload, _ := json.Marshal(models.InboundMessage{
+		Type:    models.MsgChatSend,
+		Payload: map[string]any{"text": "Nice move!"},
+	})
+	conn.WriteMessage(websocket.TextMessage, chatPayload)
+
+	// Read messages until MsgChatMessage (join messages arrive first).
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for i := 0; i < 5; i++ {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		var out models.OutboundMessage
+		json.Unmarshal(raw, &out)
+		if out.Type == models.MsgChatMessage {
+			return // success
+		}
+	}
+	t.Fatal("did not receive MsgChatMessage")
+}
+
+func TestWS_Chat_EmptyTextIgnored(t *testing.T) {
+	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(models.PuzzleResponse{Difficulty: "easy"})
+	}))
+	defer mockSrv.Close()
+
+	cfg := testConfig()
+	cfg.GameServiceURL = mockSrv.URL
+	srv, m := buildTestServer(t, cfg)
+	defer srv.Close()
+
+	rm, err := m.CreateRoom(context.Background(), "u1", models.CreateRoomRequest{
+		Type:       models.RoomTypePrivate,
+		Difficulty: "easy",
+	})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") +
+		"/rooms/" + rm.ID() + "/ws?token=u1:Alice"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Drain all join messages (player_joined + room_state).
+	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			break // deadline expired — all join messages consumed
+		}
+	}
+
+	// Send empty text — server should silently drop it.
+	payload, _ := json.Marshal(models.InboundMessage{
+		Type:    models.MsgChatSend,
+		Payload: map[string]any{"text": "   "},
+	})
+	conn.WriteMessage(websocket.TextMessage, payload)
+
+	// No response expected — use a short deadline and expect timeout.
+	conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Fatal("expected timeout (no message for blank text), got a message")
 	}
 }

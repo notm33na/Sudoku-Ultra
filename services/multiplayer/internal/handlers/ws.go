@@ -1,8 +1,14 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -11,6 +17,11 @@ import (
 	"github.com/sudoku-ultra/multiplayer/internal/hub"
 	"github.com/sudoku-ultra/multiplayer/internal/models"
 	"github.com/sudoku-ultra/multiplayer/internal/room"
+)
+
+const (
+	maxChatLen     = 500 // max chars per message
+	maxChatWarnings = 3  // warnings before mute
 )
 
 var upgrader = websocket.Upgrader{
@@ -24,15 +35,16 @@ var upgrader = websocket.Upgrader{
 
 // WS handles the WebSocket upgrade and message dispatch for a room.
 type WS struct {
-	hub     *hub.Hub
-	manager *room.Manager
-	secret  string
-	log     *zap.Logger
+	hub          *hub.Hub
+	manager      *room.Manager
+	secret       string
+	mlServiceURL string // base URL for ml-service (moderation, etc.)
+	log          *zap.Logger
 }
 
 // NewWS constructs the WebSocket handler.
-func NewWS(h *hub.Hub, m *room.Manager, secret string, log *zap.Logger) *WS {
-	return &WS{hub: h, manager: m, secret: secret, log: log}
+func NewWS(h *hub.Hub, m *room.Manager, secret, mlServiceURL string, log *zap.Logger) *WS {
+	return &WS{hub: h, manager: m, secret: secret, mlServiceURL: mlServiceURL, log: log}
 }
 
 // ServeWS upgrades an HTTP connection to WebSocket and registers the client.
@@ -136,6 +148,9 @@ func (ws *WS) OnMessage(roomID, userID string, msg models.InboundMessage) {
 
 	case models.MsgPing:
 		ws.hub.Send(userID, models.OutboundMessage{Type: models.MsgPong})
+
+	case models.MsgChatSend:
+		ws.handleChat(rm, userID, msg.Payload)
 
 	default:
 		ws.hub.Send(userID, models.OutboundMessage{
@@ -293,6 +308,128 @@ func (ws *WS) finishGame(rm *room.Room, winnerID string, reason models.EndReason
 		zap.String("room_id", rm.ID()),
 		zap.String("winner", winnerID),
 		zap.String("reason", string(reason)))
+}
+
+// ─── Chat ─────────────────────────────────────────────────────────────────────
+
+func (ws *WS) handleChat(rm *room.Room, userID string, payload map[string]any) {
+	// Muted users cannot send.
+	if rm.IsUserMuted(userID) {
+		ws.hub.Send(userID, models.OutboundMessage{
+			Type:    models.MsgChatMuted,
+			Payload: map[string]string{"message": "You are muted for this session."},
+		})
+		return
+	}
+
+	text, ok := payload["text"].(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return
+	}
+
+	// Truncate to maxChatLen characters (not bytes).
+	if utf8.RuneCountInString(text) > maxChatLen {
+		runes := []rune(text)
+		text = string(runes[:maxChatLen])
+	}
+	text = strings.TrimSpace(text)
+
+	// Moderate — fail open (allow message) if ml-service is unreachable.
+	isToxic := false
+	if ws.mlServiceURL != "" {
+		result, err := ws.moderate(text)
+		if err != nil {
+			ws.log.Warn("moderation request failed (fail open)", zap.Error(err))
+		} else {
+			isToxic = result.IsToxic
+		}
+	}
+
+	if isToxic {
+		warnings := rm.RecordChatWarning(userID)
+		if warnings >= maxChatWarnings {
+			rm.MuteUser(userID)
+			ws.hub.Send(userID, models.OutboundMessage{
+				Type:    models.MsgChatMuted,
+				Payload: map[string]string{"message": "You have been muted for sending toxic messages."},
+			})
+			ws.log.Info("user muted for toxic chat",
+				zap.String("user_id", userID),
+				zap.String("room_id", rm.ID()),
+			)
+			return
+		}
+		ws.hub.Send(userID, models.OutboundMessage{
+			Type: models.MsgChatBlocked,
+			Payload: models.ChatBlockedPayload{
+				Warning:   warnings,
+				Remaining: maxChatWarnings - warnings,
+				Message:   fmt.Sprintf("Message blocked. Warning %d of %d.", warnings, maxChatWarnings),
+			},
+		})
+		return
+	}
+
+	// Look up display name from room view.
+	displayName := userID
+	if p, ok2 := rm.View().Players[userID]; ok2 {
+		displayName = p.DisplayName
+	}
+
+	entry := room.NewChatEntry(userID, displayName, text)
+	rm.AddChat(entry)
+
+	ws.hub.Broadcast(rm.ID(), models.OutboundMessage{
+		Type: models.MsgChatMessage,
+		Payload: models.ChatMessagePayload{
+			SenderID:    userID,
+			DisplayName: displayName,
+			Text:        text,
+			Timestamp:   entry.Timestamp,
+		},
+	})
+}
+
+// moderationResult is the subset of /api/v1/moderate we care about.
+type moderationResult struct {
+	IsToxic    bool    `json:"is_toxic"`
+	Confidence float64 `json:"confidence"`
+	Category   string  `json:"category"`
+}
+
+// moderate calls the ml-service moderation endpoint.
+// Returns nil result + error if unreachable; callers fail open.
+func (ws *WS) moderate(text string) (*moderationResult, error) {
+	body, err := json.Marshal(map[string]string{"text": text})
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		ws.mlServiceURL+"/api/v1/moderate", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ml-service unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ml-service returned %d", resp.StatusCode)
+	}
+
+	var result moderationResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode moderation response: %w", err)
+	}
+	return &result, nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

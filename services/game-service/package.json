@@ -18,6 +18,7 @@
         "prisma:studio": "prisma studio"
     },
     "dependencies": {
+        "@apollo/server": "^4.10.0",
         "@prisma/client": "^5.10.0",
         "@sudoku-ultra/shared-types": "*",
         "@sudoku-ultra/sudoku-engine": "*",
@@ -25,7 +26,9 @@
         "cors": "^2.8.5",
         "express": "^4.18.0",
         "express-rate-limit": "^7.1.0",
+        "graphql": "^16.8.0",
         "helmet": "^7.1.0",
+        "ioredis": "^5.3.0",
         "jsonwebtoken": "^9.0.0",
         "morgan": "^1.10.0",
         "uuid": "^9.0.0",

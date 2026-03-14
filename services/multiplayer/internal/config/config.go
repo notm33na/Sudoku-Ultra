@@ -11,8 +11,10 @@ type Config struct {
 	Port            string
 	GameServiceURL  string
 	BotServiceURL   string // ml-service endpoint for bot moves
+	MLServiceURL    string // ml-service base URL (used for moderation, etc.)
 	RedisURL        string
 	JWTSecret       string
+	InternalSecret  string // shared secret for service-to-service calls
 	MaxRoomPlayers  int
 	CountdownSecs   int
 	ReconnectWindow time.Duration
@@ -38,8 +40,10 @@ func Load() *Config {
 		Port:            getEnv("PORT", "3002"),
 		GameServiceURL:  getEnv("GAME_SERVICE_URL", "http://game-service:3001"),
 		BotServiceURL:   getEnv("BOT_SERVICE_URL", "http://ml-service:8000"),
+		MLServiceURL:    getEnv("ML_SERVICE_URL", "http://ml-service:8000"),
 		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
 		JWTSecret:       getEnv("JWT_SECRET", "dev-secret-change-in-production"),
+		InternalSecret:  getEnv("INTERNAL_SECRET", "dev-internal-secret-change-in-production"),
 		MaxRoomPlayers:  getEnvInt("MAX_ROOM_PLAYERS", 2),
 		CountdownSecs:   getEnvInt("COUNTDOWN_SECS", 3),
 		ReconnectWindow: getEnvDuration("RECONNECT_WINDOW_SECS", 30) * time.Second,

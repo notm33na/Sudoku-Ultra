@@ -9,6 +9,9 @@ const envSchema = z.object({
     JWT_EXPIRES_IN: z.string().default('15m'),
     JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
     CORS_ORIGIN: z.string().default('*'),
+    REDIS_URL: z.string().default('redis://localhost:6379'),
+    INTERNAL_SECRET: z.string().default('dev-internal-secret-change-in-production'),
+    ML_SERVICE_URL: z.string().default('http://ml-service:8000'),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -17,7 +17,8 @@
       "Bash(go mod:*)",
       "Bash(go build:*)",
       "Bash(go get:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

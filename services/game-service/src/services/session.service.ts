@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler';
 import { CreateSessionInput, UpdateSessionInput, CompleteSessionInput } from '../schemas';
 import { getPuzzleWithSolution } from './puzzle.service';
 import { kafkaService } from './kafka.service';
+import { checkSessionAnomaly } from './anomaly.service';
 
 // ─── Create Session ───────────────────────────────────────────────────────────
 
@@ -179,6 +180,17 @@ export async function completeSession(
         },
     });
 
+    // Anti-cheat anomaly check — fire-and-forget, never blocks gameplay.
+    checkSessionAnomaly({
+        sessionId,
+        userId,
+        difficulty: session.difficulty,
+        timeElapsedMs: input.timeElapsedMs,
+        cellsFilled: cells_to_fill(session.difficulty),
+        errorsCount: session.errorsCount,
+        hintsUsed: session.hintsUsed,
+    }).catch(() => null);
+
     // Publish analytics event to Kafka — fire-and-forget, never blocks gameplay
     kafkaService.publishSessionCompleted({
         user_id: userId,
@@ -202,6 +214,14 @@ export async function completeSession(
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function cells_to_fill(difficulty: string): number {
+    const map: Record<string, number> = {
+        super_easy: 30, beginner: 35, easy: 40,
+        medium: 45, hard: 50, expert: 55, evil: 60,
+    };
+    return map[difficulty] ?? 45;
+}
 
 function difficultyPoints(difficulty: string): number {
     const map: Record<string, number> = {
