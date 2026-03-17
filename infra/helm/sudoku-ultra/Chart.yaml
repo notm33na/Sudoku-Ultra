@@ -1,0 +1,12 @@
+apiVersion: v2
+name: sudoku-ultra
+description: Sudoku Ultra — full-stack ML Sudoku platform
+type: application
+version: 0.3.0
+appVersion: "0.3.0"
+keywords:
+  - sudoku
+  - multiplayer
+  - ml
+maintainers:
+  - name: ml-team

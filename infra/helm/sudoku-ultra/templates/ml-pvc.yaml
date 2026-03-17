@@ -1,0 +1,28 @@
+{{- if .Values.mlService.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-ml-models
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.mlService.persistence.models.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-ml-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  # ReadWriteMany required so ml-service + kafka-consumer share the same volume.
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: {{ .Values.mlService.persistence.data.size }}
+{{- end }}

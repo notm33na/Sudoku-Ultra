@@ -24,8 +24,11 @@ x-airflow-common: &airflow-common
     AIRFLOW_VAR_ML_SERVICE_URL: http://ml-service:3003
     AIRFLOW_VAR_GAME_SERVICE_URL: http://game-service:3001
     AIRFLOW_VAR_DUCKDB_PATH: /app/data/analytics.duckdb
+    COMPETITIVE_DUCKDB_PATH: /app/data/competitive.duckdb
+    EVENTS_DIR: /app/data/events
   volumes:
     - ../ml/pipelines:/opt/airflow/dags:ro
+    - ../airflow/dags:/opt/airflow/dags/competitive:ro
     - airflow_logs:/opt/airflow/logs
     - duckdb_data:/app/data
   depends_on:
@@ -131,6 +134,8 @@ services:
       JWT_REFRESH_EXPIRES_IN: 7d
       KAFKA_BROKERS: kafka:9092
       ML_SERVICE_URL: http://ml-service:3003
+      REDIS_URL: redis://redis:6379
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-dev-internal-secret-change-in-production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,6 +165,10 @@ services:
       DATABASE_URL: postgresql://sudoku:sudoku_dev_password@postgres:5432/sudoku_ultra
       GAME_SERVICE_URL: http://game-service:3001
       DUCKDB_PATH: /app/data/analytics.duckdb
+      COMPETITIVE_DUCKDB_PATH: /app/data/competitive.duckdb
+      EVENTS_DIR: /app/data/events
+      KAFKA_BROKERS: kafka:9092
+      ANOMALY_ENRICH: "1"
     volumes:
       - ml_models:/app/ml/models
       - duckdb_data:/app/data
@@ -172,6 +181,59 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # ── Multiplayer Service ──────────────────────────────────────────────────────
+  multiplayer:
+    build:
+      context: ../services/multiplayer
+      dockerfile: Dockerfile
+    container_name: sudoku-ultra-multiplayer
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: 3002
+      GAME_SERVICE_URL: http://game-service:3001
+      BOT_SERVICE_URL: http://ml-service:3003
+      ML_SERVICE_URL: http://ml-service:3003
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-dev-internal-secret-change-in-production}
+      LOG_LEVEL: info
+    depends_on:
+      redis:
+        condition: service_healthy
+      game-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Kafka Consumer (ML enrichment) ───────────────────────────────────────────
+  kafka-consumer:
+    build:
+      context: ../services/ml-service
+      dockerfile: Dockerfile
+    container_name: sudoku-ultra-kafka-consumer
+    restart: unless-stopped
+    command: ["python", "-m", "app.ml.kafka_consumer"]
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: ml-service-enrichment
+      EVENTS_DIR: /app/data/events
+      ANOMALY_ENRICH: "1"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ml_models:/app/ml/models
+      - duckdb_data:/app/data
+    depends_on:
+      kafka:
+        condition: service_healthy
+      ml-service:
+        condition: service_healthy
 
   # ── Notification Service ─────────────────────────────────────────────────────
   notification-service:
@@ -315,6 +377,8 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       game-service:
+        condition: service_healthy
+      multiplayer:
         condition: service_healthy
 
 volumes:

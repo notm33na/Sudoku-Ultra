@@ -1,0 +1,158 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Sudoku Ultra — Helm Values
+# Override with: helm upgrade --install sudoku-ultra ./infra/helm/sudoku-ultra \
+#   -f my-values.yaml
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Image registry ────────────────────────────────────────────────────────────
+image:
+  registry: ghcr.io/sudoku-ultra
+  pullPolicy: IfNotPresent
+  tag: latest
+
+# ── Global secrets (override in production) ───────────────────────────────────
+global:
+  jwtSecret: "dev-jwt-secret-change-in-production"
+  internalSecret: "dev-internal-secret-change-in-production"
+  postgresUrl: "postgresql://sudoku:sudoku_dev_password@postgres:5432/sudoku_ultra"
+  redisUrl: "redis://redis:6379"
+  kafkaBrokers: "kafka:9092"
+
+# ── game-service ──────────────────────────────────────────────────────────────
+gameService:
+  enabled: true
+  replicaCount: 2
+  image:
+    name: game-service
+  service:
+    port: 3001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    NODE_ENV: production
+    PORT: "3001"
+    ML_SERVICE_URL: "http://ml-service:3003"
+
+# ── multiplayer ───────────────────────────────────────────────────────────────
+multiplayer:
+  enabled: true
+  replicaCount: 2
+  image:
+    name: multiplayer
+  service:
+    port: 3002
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  env:
+    PORT: "3002"
+    LOG_LEVEL: info
+    MAX_ROOM_PLAYERS: "2"
+    COUNTDOWN_SECS: "3"
+    RECONNECT_WINDOW_SECS: "30"
+    MATCHMAKE_QUEUE_KEY: "multiplayer:matchmaking"
+    GAME_SERVICE_URL: "http://game-service:3001"
+    ML_SERVICE_URL: "http://ml-service:3003"
+    BOT_SERVICE_URL: "http://ml-service:3003"
+
+# ── ml-service ────────────────────────────────────────────────────────────────
+mlService:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: ml-service
+  service:
+    port: 3003
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  env:
+    PORT: "3003"
+    ENV: production
+    LOG_LEVEL: INFO
+    ANOMALY_ENRICH: "1"
+    COMPETITIVE_DUCKDB_PATH: /data/competitive.duckdb
+    EVENTS_DIR: /data/events
+  persistence:
+    models:
+      size: 2Gi
+    data:
+      size: 5Gi
+
+# ── kafka-consumer ────────────────────────────────────────────────────────────
+kafkaConsumer:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: ml-service   # shares the ml-service image
+  command: ["python", "-m", "app.ml.kafka_consumer"]
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+  env:
+    KAFKA_GROUP_ID: ml-service-enrichment
+    ANOMALY_ENRICH: "1"
+    EVENTS_DIR: /data/events
+
+# ── nginx (api-gateway) ───────────────────────────────────────────────────────
+nginx:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: nginx
+    tag: 1.25-alpine
+  service:
+    type: LoadBalancer
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  host: sudoku-ultra.example.com
+  tls: []
+
+# ── PostgreSQL (sub-chart) ────────────────────────────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    username: sudoku
+    password: sudoku_dev_password
+    database: sudoku_ultra
+  primary:
+    persistence:
+      size: 10Gi
+
+# ── Redis (sub-chart) ─────────────────────────────────────────────────────────
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      size: 1Gi

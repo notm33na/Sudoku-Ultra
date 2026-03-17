@@ -1,0 +1,40 @@
+{{- if .Values.kafkaConsumer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-kafka-consumer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-consumer
+spec:
+  replicas: {{ .Values.kafkaConsumer.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sudoku-ultra.selectorLabels" (dict "component" "kafka-consumer" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sudoku-ultra.selectorLabels" (dict "component" "kafka-consumer" "root" .) | nindent 8 }}
+    spec:
+      containers:
+        - name: kafka-consumer
+          image: {{ include "sudoku-ultra.image" (dict "name" .Values.kafkaConsumer.image.name "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: {{ toJson .Values.kafkaConsumer.command }}
+          env:
+            {{- include "sudoku-ultra.globalEnv" . | nindent 12 }}
+            {{- range $k, $v := .Values.kafkaConsumer.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.kafkaConsumer.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-ml-data
+{{- end }}

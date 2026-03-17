@@ -1,0 +1,48 @@
+{{- if .Values.multiplayer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-multiplayer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: multiplayer
+spec:
+  replicas: {{ .Values.multiplayer.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sudoku-ultra.selectorLabels" (dict "component" "multiplayer" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sudoku-ultra.selectorLabels" (dict "component" "multiplayer" "root" .) | nindent 8 }}
+    spec:
+      containers:
+        - name: multiplayer
+          image: {{ include "sudoku-ultra.image" (dict "name" .Values.multiplayer.image.name "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.multiplayer.service.port }}
+              protocol: TCP
+          env:
+            {{- include "sudoku-ultra.globalEnv" . | nindent 12 }}
+            {{- range $k, $v := .Values.multiplayer.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.multiplayer.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.multiplayer.service.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.multiplayer.resources | nindent 12 }}
+{{- end }}

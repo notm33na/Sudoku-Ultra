@@ -1,12 +1,13 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Sudoku Ultra — Docker Compose (Development Mode)
+# Sudoku Ultra — Docker Compose (Development Overrides)
 # ──────────────────────────────────────────────────────────────────────────────
 # Usage: cd infra && docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-# This overrides game-service to use volume mounts + ts-node-dev for hot reload.
+# Enables hot-reload for game-service and multiplayer service.
 
 version: "3.9"
 
 services:
+  # ── game-service: ts-node-dev hot reload ─────────────────────────────────────
   game-service:
     build:
       context: ..
@@ -20,3 +21,38 @@ services:
       sh -c "cd services/game-service && npx ts-node-dev --respawn --transpile-only src/index.ts"
     environment:
       NODE_ENV: development
+
+  # ── multiplayer: Go live reload via Air ──────────────────────────────────────
+  # Requires cosmtrek/air. Falls back to plain go run if air is not installed.
+  multiplayer:
+    build:
+      context: ../services/multiplayer
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      - ../services/multiplayer:/app:ro
+    working_dir: /app
+    command: >
+      sh -c "which air 2>/dev/null && air || go run ."
+    environment:
+      PORT: 3002
+      LOG_LEVEL: debug
+
+  # ── ml-service: uvicorn --reload ─────────────────────────────────────────────
+  ml-service:
+    build:
+      context: ../services/ml-service
+      dockerfile: Dockerfile
+    volumes:
+      - ../services/ml-service/app:/app/app:ro
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3003", "--reload"]
+    environment:
+      ENV: development
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG
+
+  # ── kafka-consumer: disable in dev (Kafka may not be running) ─────────────────
+  kafka-consumer:
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      ANOMALY_ENRICH: "0"
