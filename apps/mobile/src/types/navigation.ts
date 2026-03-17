@@ -17,6 +17,23 @@ export type RootStackParamList = {
         difficulty: Difficulty;
     };
     ScanPuzzle: undefined;
+    MultiplayerLobby: undefined;
+    MultiplayerGame: {
+        roomId: string;
+        myUserId: string;
+        myDisplayName: string;
+        difficulty: string;
+    };
+    MatchResult: {
+        won: boolean;
+        endReason: string;
+        eloBefore: number;
+        eloAfter: number;
+        eloDelta: number;
+        opponentName: string;
+        difficulty: string;
+        durationMs: number;
+    };
 };
 
 export type HomeScreenProps = NativeStackScreenProps<RootStackParamList, 'Home'>;
@@ -24,3 +41,6 @@ export type DifficultyScreenProps = NativeStackScreenProps<RootStackParamList, '
 export type GameScreenProps = NativeStackScreenProps<RootStackParamList, 'Game'>;
 export type ResultScreenProps = NativeStackScreenProps<RootStackParamList, 'Result'>;
 export type ScanPuzzleScreenProps = NativeStackScreenProps<RootStackParamList, 'ScanPuzzle'>;
+export type MultiplayerLobbyScreenProps = NativeStackScreenProps<RootStackParamList, 'MultiplayerLobby'>;
+export type MultiplayerGameScreenProps = NativeStackScreenProps<RootStackParamList, 'MultiplayerGame'>;
+export type MatchResultScreenProps = NativeStackScreenProps<RootStackParamList, 'MatchResult'>;

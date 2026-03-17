@@ -34,6 +34,9 @@ skl2onnx==1.17.0
 # Analytics
 duckdb==0.10.3
 
+# Kafka consumer
+kafka-python==2.0.2
+
 # Monitoring
 evidently==0.4.27
 

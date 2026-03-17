@@ -15,6 +15,7 @@
 import { prisma } from '../prisma/client';
 import { getRedis, LEADERBOARD_KEY } from '../lib/redis';
 import { computeElo } from './elo.service';
+import { kafkaService } from './kafka.service';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,23 @@ export async function recordMatchResult(input: MatchResultInput): Promise<Record
     // Sync Redis leaderboard (fire-and-forget — non-fatal on failure).
     syncLeaderboard(input.winnerId, elo.winnerAfter).catch(() => null);
     syncLeaderboard(input.loserId, elo.loserAfter).catch(() => null);
+
+    // Publish Kafka event for competitive analytics pipeline (fire-and-forget).
+    kafkaService.publishMultiplayerMatchCompleted({
+        match_id: match.id,
+        room_id: input.roomId,
+        winner_id: input.winnerId,
+        loser_id: input.loserId,
+        winner_elo_before: elo.winnerBefore,
+        winner_elo_after: elo.winnerAfter,
+        loser_elo_before: elo.loserBefore,
+        loser_elo_after: elo.loserAfter,
+        elo_delta: elo.delta,
+        difficulty: input.difficulty,
+        end_reason: input.endReason,
+        duration_ms: input.durationMs,
+        completed_at: now.toISOString(),
+    }).catch(() => null);
 
     return {
         matchId: match.id,

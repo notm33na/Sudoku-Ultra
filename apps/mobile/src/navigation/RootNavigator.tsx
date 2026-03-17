@@ -6,6 +6,9 @@ import { DifficultyScreen } from '../screens/DifficultyScreen';
 import { GameScreen } from '../screens/GameScreen';
 import { ResultScreen } from '../screens/ResultScreen';
 import ScanPuzzleScreen from '../screens/ScanPuzzleScreen';
+import { MultiplayerLobbyScreen } from '../screens/MultiplayerLobbyScreen';
+import { MultiplayerGameScreen } from '../screens/MultiplayerGameScreen';
+import { MatchResultScreen } from '../screens/MatchResultScreen';
 import { colors } from '../theme/colors';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -61,6 +64,28 @@ export function RootNavigator() {
                 name="ScanPuzzle"
                 component={ScanPuzzleScreen}
                 options={{ title: 'Scan Puzzle' }}
+            />
+            <Stack.Screen
+                name="MultiplayerLobby"
+                component={MultiplayerLobbyScreen}
+                options={{ title: 'Multiplayer' }}
+            />
+            <Stack.Screen
+                name="MultiplayerGame"
+                component={MultiplayerGameScreen}
+                options={{
+                    title: 'Match',
+                    headerBackVisible: false,
+                    gestureEnabled: false,
+                }}
+            />
+            <Stack.Screen
+                name="MatchResult"
+                component={MatchResultScreen}
+                options={{
+                    headerShown: false,
+                    gestureEnabled: false,
+                }}
             />
         </Stack.Navigator>
     );

@@ -209,6 +209,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                     >
                         <Text style={styles.secondaryButtonText}>📷  Scan Puzzle</Text>
                     </Pressable>
+
+                    <Pressable
+                        style={({ pressed }) => [styles.multiplayerButton, pressed && styles.pressed]}
+                        onPress={() => navigation.navigate('MultiplayerLobby')}
+                    >
+                        <Text style={styles.multiplayerButtonText}>⚔️  Multiplayer</Text>
+                    </Pressable>
                 </View>
 
                 {/* ── Recommended difficulties ────────────────────────────── */}
@@ -486,6 +493,22 @@ const styles = StyleSheet.create({
         fontSize: 22,
         color: colors.text.muted,
         marginLeft: 8,
+    },
+
+    // Multiplayer button
+    multiplayerButton: {
+        backgroundColor: 'rgba(167, 139, 250, 0.1)',
+        paddingVertical: 18,
+        borderRadius: 14,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#a78bfa',
+    },
+    multiplayerButtonText: {
+        fontSize: 17,
+        fontWeight: '700',
+        color: '#a78bfa',
+        letterSpacing: 0.4,
     },
 
     // Footer

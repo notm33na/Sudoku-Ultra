@@ -13,6 +13,7 @@
 import { Kafka, Producer, Partitioners } from 'kafkajs';
 
 const TOPIC_SESSION_COMPLETED = 'game.session.completed';
+const TOPIC_MATCH_COMPLETED = 'multiplayer.match.completed';
 
 interface SessionCompletedEvent {
     event_type: 'session.completed';
@@ -25,6 +26,23 @@ interface SessionCompletedEvent {
     hints_used: number;
     errors_count: number;
     completed_at: string; // ISO 8601
+}
+
+interface MultiplayerMatchCompletedEvent {
+    event_type: 'multiplayer.match.completed';
+    match_id: string;
+    room_id: string;
+    winner_id: string;
+    loser_id: string;
+    winner_elo_before: number;
+    winner_elo_after: number;
+    loser_elo_before: number;
+    loser_elo_after: number;
+    elo_delta: number;
+    difficulty: string;
+    end_reason: string;       // 'completion' | 'surrender' | 'timeout'
+    duration_ms: number;
+    completed_at: string;     // ISO 8601
 }
 
 class KafkaService {
@@ -77,16 +95,34 @@ class KafkaService {
         try {
             await this.producer.send({
                 topic: TOPIC_SESSION_COMPLETED,
-                messages: [
-                    {
-                        key: payload.user_id,
-                        value: JSON.stringify(event),
-                    },
-                ],
+                messages: [{ key: payload.user_id, value: JSON.stringify(event) }],
             });
         } catch (err) {
-            // Log but do not rethrow — analytics is non-critical.
             console.warn('[KafkaService] Failed to publish session event:', err);
+        }
+    }
+
+    /**
+     * Publish a multiplayer.match.completed event. Fire-and-forget — never throws.
+     * Called from rating.service.ts after Elo is persisted to Postgres.
+     */
+    async publishMultiplayerMatchCompleted(
+        payload: Omit<MultiplayerMatchCompletedEvent, 'event_type'>,
+    ): Promise<void> {
+        if (!this.producer || !this.connected) return;
+
+        const event: MultiplayerMatchCompletedEvent = {
+            event_type: 'multiplayer.match.completed',
+            ...payload,
+        };
+
+        try {
+            await this.producer.send({
+                topic: TOPIC_MATCH_COMPLETED,
+                messages: [{ key: payload.winner_id, value: JSON.stringify(event) }],
+            });
+        } catch (err) {
+            console.warn('[KafkaService] Failed to publish match event:', err);
         }
     }
 }
