@@ -36,6 +36,25 @@ class Settings(BaseSettings):
     # Database (for feature store)
     DATABASE_URL: str = "postgresql://sudoku:sudoku_dev_password@localhost:5432/sudoku_ultra"
 
+    # Qdrant vector DB
+    QDRANT_URL: str = "http://qdrant:6333"
+    QDRANT_API_KEY: str = ""
+    TECHNIQUES_COLLECTION: str = "techniques"
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+
+    # LLM routing
+    OLLAMA_URL: str = "http://ollama:11434"
+    OLLAMA_MODEL: str = "mistral"                           # quick hints
+    HF_INFERENCE_API_KEY: str = ""
+    HF_INFERENCE_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.3"  # deep explanations
+    TUTOR_MAX_TOKENS: int = 512
+    TUTOR_SESSION_TTL_SECS: int = 3600                      # 1-hour idle session expiry
+    TUTOR_MEMORY_WINDOW: int = 10                           # last N exchanges kept
+
+    # Circuit breaker (LLM failover)
+    LLM_CIRCUIT_BREAKER_THRESHOLD: int = 3                  # failures before open
+    LLM_CIRCUIT_BREAKER_WINDOW_SECS: int = 60
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

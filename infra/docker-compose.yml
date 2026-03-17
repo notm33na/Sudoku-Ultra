@@ -169,11 +169,15 @@ services:
       EVENTS_DIR: /app/data/events
       KAFKA_BROKERS: kafka:9092
       ANOMALY_ENRICH: "1"
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_URL: http://ollama:11434
     volumes:
       - ml_models:/app/ml/models
       - duckdb_data:/app/data
     depends_on:
       postgres:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3003/health')"]
@@ -234,6 +238,38 @@ services:
         condition: service_healthy
       ml-service:
         condition: service_healthy
+
+  # ── Qdrant Vector DB ──────────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.10.1
+    container_name: sudoku-ultra-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Ollama (local LLM) ────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:0.3.12
+    container_name: sudoku-ultra-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
 
   # ── Notification Service ─────────────────────────────────────────────────────
   notification-service:
@@ -390,3 +426,5 @@ volumes:
   mlflow_data:
   airflow_logs:
   duckdb_data:
+  qdrant_data:
+  ollama_data:

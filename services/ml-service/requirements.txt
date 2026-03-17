@@ -55,6 +55,14 @@ stable-baselines3==2.3.0
 gymnasium==0.29.1
 sb3-contrib==2.3.0   # MaskablePPO for valid-action masking
 
+# RAG / LLM
+langchain==0.2.16
+langchain-core==0.2.38
+langchain-community==0.2.16
+langchain-huggingface==0.0.6
+qdrant-client==1.10.1
+sentence-transformers==3.1.1
+
 # Testing
 pytest==8.2.0
 pytest-asyncio==0.23.7
