@@ -7,6 +7,19 @@ metadata:
   labels:
     {{- include "sudoku-ultra.labels" . | nindent 4 }}
     app.kubernetes.io/component: ml-service
+  {{- if .Values.vault.enabled }}
+  annotations:
+    vault.hashicorp.com/agent-inject: "true"
+    vault.hashicorp.com/role: {{ .Values.vault.role | quote }}
+    vault.hashicorp.com/agent-inject-secret-config: "secret/data/sudoku-ultra/ml-service"
+    vault.hashicorp.com/agent-inject-template-config: |
+      {{`{{- with secret "secret/data/sudoku-ultra/ml-service" -}}
+      export DATABASE_URL="{{ .Data.data.database_url }}"
+      export QDRANT_API_KEY="{{ .Data.data.qdrant_api_key }}"
+      export SENTRY_DSN="{{ .Data.data.sentry_dsn }}"
+      export PII_HMAC_SECRET="{{ .Data.data.pii_hmac_secret }}"
+      {{- end }}`}}
+  {{- end }}
 spec:
   replicas: {{ .Values.mlService.replicaCount }}
   selector:
@@ -22,6 +35,11 @@ spec:
         prometheus.io/port: {{ .Values.mlService.service.port | quote }}
     spec:
       serviceAccountName: {{ include "sudoku-ultra.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: {{ .Values.podSecurity.runAsNonRoot }}
+        runAsUser:    {{ .Values.podSecurity.runAsUser }}
+        runAsGroup:   {{ .Values.podSecurity.runAsGroup }}
+        fsGroup:      {{ .Values.podSecurity.fsGroup }}
       {{- with .Values.mlService.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -34,6 +52,11 @@ spec:
         - name: ml-service
           image: {{ include "sudoku-ultra.image" (dict "name" .Values.mlService.image.name "root" .) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: {{ .Values.podSecurity.allowPrivilegeEscalation }}
+            readOnlyRootFilesystem:   {{ .Values.podSecurity.readOnlyRootFilesystem }}
+            capabilities:
+              drop: {{- toYaml .Values.podSecurity.dropCapabilities | nindent 16 }}
           ports:
             - name: http
               containerPort: {{ .Values.mlService.service.port }}

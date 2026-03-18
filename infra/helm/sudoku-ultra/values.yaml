@@ -21,6 +21,22 @@ global:
   ollamaUrl: "http://ollama:11434"
   sentryDsn: ""  # set per-env in CI secrets
 
+# ── Network Policies ─────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: false   # enable in prod for zero-trust pod networking
+
+# ── Pod Security ──────────────────────────────────────────────────────────────
+podSecurity:
+  # Applied to all application containers (game-service, multiplayer, ml-service)
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  readOnlyRootFilesystem: false   # set true per-service once tested
+  allowPrivilegeEscalation: false
+  dropCapabilities:
+    - ALL
+
 # ── Vault integration ─────────────────────────────────────────────────────────
 vault:
   enabled: false   # enable to inject Vault agent init containers
@@ -133,6 +149,7 @@ mlService:
     ANOMALY_ENRICH: "1"
     COMPETITIVE_DUCKDB_PATH: /data/competitive.duckdb
     EVENTS_DIR: /data/events
+    MLFLOW_S3_ENDPOINT_URL: "http://minio:9000"
   persistence:
     models:
       size: 2Gi
@@ -207,6 +224,34 @@ qdrant:
     size: 5Gi
     storageClass: ""
 
+# ── MinIO (S3-compatible artifact store) ──────────────────────────────────────
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: RELEASE.2024-07-04T14-25-45Z
+  service:
+    apiPort: 9000
+    consolePort: 9001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  persistence:
+    size: 20Gi
+    storageClass: ""
+  # Buckets created at startup via initContainers (mc)
+  buckets:
+    - mlflow-artifacts
+    - training-data
+    - model-exports
+  # Credentials — override via --set or Vault in production
+  rootUser: minioadmin
+  rootPassword: minioadmin
+
 # ── Ollama (local LLM) ────────────────────────────────────────────────────────
 ollama:
   enabled: false   # disabled in prod — use HuggingFace endpoint instead
@@ -259,6 +304,66 @@ redis:
   master:
     persistence:
       size: 1Gi
+
+# ── Prometheus ────────────────────────────────────────────────────────────────
+prometheus:
+  enabled: false   # enable in prod
+  image:
+    repository: prom/prometheus
+    tag: v2.53.1
+  retention: 15d
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+
+# ── Grafana ────────────────────────────────────────────────────────────────────
+grafana:
+  enabled: false   # enable in prod
+  image:
+    repository: grafana/grafana
+    tag: "11.1.3"
+  adminUser: admin
+  adminPassword: changeme   # override via --set or Vault
+  rootUrl: "%(protocol)s://%(domain)s:%(http_port)s/"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+
+# ── OpenTelemetry Collector ────────────────────────────────────────────────────
+otelCollector:
+  enabled: false   # enable in prod
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: 0.103.0
+  memoryLimitMib: 512
+  memorySpikeLimitMib: 128
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+# ── Alertmanager ──────────────────────────────────────────────────────────────
+alertmanager:
+  enabled: false   # enable in prod alongside prometheus
 
 # ── Observability (Loki stack sub-chart) ─────────────────────────────────────
 loki:

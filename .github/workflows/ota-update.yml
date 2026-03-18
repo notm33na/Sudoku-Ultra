@@ -1,0 +1,240 @@
+name: Expo OTA Update
+
+# Publishes an Expo OTA update whenever mobile-relevant code changes.
+# Branch strategy:
+#   main   → production channel  (requires manual approval via environment)
+#   staging → staging channel    (auto-deploy)
+#
+# Prerequisites:
+#   EXPO_TOKEN      — EAS personal access token (repo secret)
+#   EAS_PROJECT_ID  — EAS project ID            (repo secret)
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - "apps/mobile/**"
+      - "packages/**"
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "EAS update channel (production / staging / preview)"
+        required: true
+        default: "staging"
+      message:
+        description: "Update message (shown in Expo dashboard)"
+        required: false
+        default: "Manual OTA update"
+
+concurrency:
+  group: ota-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Fast checks before publishing ─────────────────────────────────────────
+  lint-and-type:
+    name: Lint & TypeCheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npx eslint src --ext .ts,.tsx --max-warnings 0
+
+  # ── ONNX model freshness check ─────────────────────────────────────────────
+  check-models:
+    name: ONNX Model Freshness
+    runs-on: ubuntu-latest
+    outputs:
+      models_changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect model changes
+        id: diff
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -q '^ml/models/.*\.onnx$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Warn if models stale
+        if: steps.diff.outputs.changed == 'false'
+        run: |
+          echo "::warning::ONNX models unchanged. If you retrained models, re-run export_onnx.py and commit the updated .onnx files."
+
+  # ── Bundle size guard ──────────────────────────────────────────────────────
+  bundle-size:
+    name: Bundle Size Check
+    runs-on: ubuntu-latest
+    needs: lint-and-type
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export bundle (Android)
+        run: |
+          npx expo export --platform android --output-dir /tmp/bundle-android 2>&1 | tail -20
+
+      - name: Check bundle size
+        run: |
+          BUNDLE_SIZE=$(du -sk /tmp/bundle-android | cut -f1)
+          echo "Android bundle: ${BUNDLE_SIZE} KB"
+          # Fail if bundle exceeds 25 MB
+          if [ "$BUNDLE_SIZE" -gt 25600 ]; then
+            echo "::error::Android bundle size ${BUNDLE_SIZE} KB exceeds 25 MB limit"
+            exit 1
+          fi
+          echo "bundle_size_kb=${BUNDLE_SIZE}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Staging OTA publish ────────────────────────────────────────────────────
+  publish-staging:
+    name: Publish → staging
+    runs-on: ubuntu-latest
+    needs: [lint-and-type, bundle-size]
+    if: >
+      github.ref_name == 'staging' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'staging')
+    environment: staging
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish OTA update (staging)
+        run: |
+          MESSAGE="${{ github.event.inputs.message || format('Deploy {0} to staging', github.sha) }}"
+          eas update \
+            --channel staging \
+            --message "$MESSAGE" \
+            --non-interactive
+
+      - name: Summary
+        run: |
+          echo "### OTA Update Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Channel**: staging" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit**: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Triggered by**: ${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Production OTA publish (requires approval) ────────────────────────────
+  publish-production:
+    name: Publish → production
+    runs-on: ubuntu-latest
+    needs: [lint-and-type, bundle-size]
+    if: >
+      github.ref_name == 'main' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'production')
+    environment: production   # GitHub environment with required reviewers
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish OTA update (production)
+        run: |
+          MESSAGE="${{ github.event.inputs.message || format('Deploy {0} to production', github.sha) }}"
+          eas update \
+            --channel production \
+            --message "$MESSAGE" \
+            --non-interactive
+
+      - name: Summary
+        run: |
+          echo "### OTA Update Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Channel**: production" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit**: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Triggered by**: ${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Rollback helper (manual trigger only) ────────────────────────────────
+  rollback:
+    name: Rollback OTA
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.channel == 'rollback'
+    environment: production
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Roll back production channel
+        run: |
+          echo "Rolling back production channel to previous update..."
+          eas update:roll-back-to-embedded \
+            --channel production \
+            --non-interactive

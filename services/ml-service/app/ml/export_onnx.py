@@ -132,6 +132,62 @@ def verify_onnx(onnx_path: Path, n_features: int = 10) -> bool:
         return False
 
 
+def export_clustering_onnx(
+    model_dir: Path | None = None,
+    output_path: Path | None = None,
+) -> Path:
+    """
+    Export the trained K-Means clustering model to ONNX.
+
+    The clustering model is a scikit-learn Pipeline (StandardScaler + KMeans).
+    Converts via skl2onnx; output node is the cluster label (int64).
+    """
+    model_dir = model_dir or MODEL_DIR
+    output_path = output_path or (model_dir / "clustering.onnx")
+
+    # Try pipeline first, then bare KMeans + separate scaler
+    pipeline_path = model_dir / "skill_clustering_pipeline.pkl"
+    model_path = model_dir / "skill_clustering.pkl"
+    scaler_path = model_dir / "clustering_scaler.pkl"
+
+    if pipeline_path.exists():
+        with open(pipeline_path, "rb") as f:
+            pipeline = pickle.load(f)
+        n_features = pipeline.named_steps["kmeans"].cluster_centers_.shape[1]
+    elif model_path.exists():
+        with open(model_path, "rb") as f:
+            kmeans = pickle.load(f)
+        n_features = kmeans.cluster_centers_.shape[1]
+
+        if scaler_path.exists():
+            from sklearn.pipeline import Pipeline as SKPipeline
+            from sklearn.preprocessing import StandardScaler
+            with open(scaler_path, "rb") as f:
+                scaler = pickle.load(f)
+            pipeline = SKPipeline([("scaler", scaler), ("kmeans", kmeans)])
+        else:
+            from sklearn.pipeline import Pipeline as SKPipeline
+            pipeline = SKPipeline([("kmeans", kmeans)])
+    else:
+        raise FileNotFoundError(
+            f"Clustering model not found — expected {pipeline_path} or {model_path}"
+        )
+
+    from skl2onnx import convert_sklearn
+    from skl2onnx.common.data_types import FloatTensorType
+
+    initial_type = [("features", FloatTensorType([None, n_features]))]
+    onnx_model = convert_sklearn(pipeline, initial_types=initial_type)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "wb") as f:
+        f.write(onnx_model.SerializeToString())
+
+    print(f"✅ Clustering ONNX exported: {output_path}")
+    print(f"   Features: {n_features}  Size: {output_path.stat().st_size / 1024:.1f} KB")
+    return output_path
+
+
 def export_scanner_tflite(
     model_dir: Path | None = None,
 ) -> Path | None:
@@ -203,6 +259,13 @@ if __name__ == "__main__":
         verify_onnx(classifier_path, n_features=10)
     except FileNotFoundError as e:
         print(f"Skipping classifier: {e}")
+
+    print()
+    try:
+        clustering_path = export_clustering_onnx()
+        verify_onnx(clustering_path, n_features=8)
+    except (FileNotFoundError, ImportError) as e:
+        print(f"Skipping clustering: {e}")
 
     print()
     try:

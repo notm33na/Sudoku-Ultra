@@ -18,6 +18,14 @@
         "prisma:studio": "prisma studio"
     },
     "dependencies": {
+        "@opentelemetry/sdk-node": "^0.52.0",
+        "@opentelemetry/auto-instrumentations-node": "^0.48.0",
+        "@opentelemetry/exporter-trace-otlp-http": "^0.52.0",
+        "@opentelemetry/exporter-metrics-otlp-http": "^0.52.0",
+        "@opentelemetry/sdk-metrics": "^1.25.0",
+        "@opentelemetry/resources": "^1.25.0",
+        "@opentelemetry/semantic-conventions": "^1.25.0",
+        "@sentry/node": "^8.0.0",
         "@apollo/server": "^4.10.0",
         "@prisma/client": "^5.10.0",
         "@sudoku-ultra/shared-types": "*",

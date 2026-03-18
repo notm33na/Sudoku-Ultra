@@ -1,0 +1,106 @@
+{{- if .Values.minio.enabled }}
+# ── MinIO StatefulSet ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-minio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  serviceName: {{ .Release.Name }}-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-minio
+        {{- include "sudoku-ultra.labels" . | nindent 8 }}
+        app.kubernetes.io/component: minio
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}
+          imagePullPolicy: IfNotPresent
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              value: {{ .Values.minio.rootUser | quote }}
+            - name: MINIO_ROOT_PASSWORD
+              value: {{ .Values.minio.rootPassword | quote }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.minio.service.apiPort }}
+              protocol: TCP
+            - name: console
+              containerPort: {{ .Values.minio.service.consolePort }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: {{ .Values.minio.service.apiPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: {{ .Values.minio.service.apiPort }}
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      initContainers:
+        - name: create-buckets
+          image: minio/mc:RELEASE.2024-07-03T20-17-25Z
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until mc alias set local http://localhost:{{ .Values.minio.service.apiPort }} \
+                    {{ .Values.minio.rootUser }} {{ .Values.minio.rootPassword }}; do
+                echo "waiting for minio..."; sleep 2
+              done
+              {{- range .Values.minio.buckets }}
+              mc mb --ignore-existing local/{{ . }}
+              {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.minio.persistence.storageClass }}
+        storageClassName: {{ .Values.minio.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.minio.persistence.size }}
+---
+# ── MinIO Service ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-minio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-minio
+  ports:
+    - name: api
+      port: {{ .Values.minio.service.apiPort }}
+      targetPort: api
+      protocol: TCP
+    - name: console
+      port: {{ .Values.minio.service.consolePort }}
+      targetPort: console
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { NavigationState } from '@react-navigation/native';
 import { RootStackParamList } from '../types/navigation';
+import { analyticsService } from '../services/analytics.service';
 import { HomeScreen } from '../screens/HomeScreen';
 import { DifficultyScreen } from '../screens/DifficultyScreen';
 import { GameScreen } from '../screens/GameScreen';
@@ -18,13 +20,32 @@ import { colors } from '../theme/colors';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+function getActiveRouteName(state: NavigationState | undefined): string {
+    if (!state) return 'Unknown';
+    const route = state.routes[state.index];
+    if (route.state) return getActiveRouteName(route.state as NavigationState);
+    return route.name;
+}
+
 /**
  * Pass initialRoute="Onboarding" for first-time users.
  * The app entry point checks /api/onboarding/status and decides.
  */
 export function RootNavigator({ initialRoute = 'Home' }: { initialRoute?: keyof RootStackParamList }) {
+    const routeNameRef = useRef<string>('');
+
     return (
         <Stack.Navigator
+            screenListeners={{
+                state: (e) => {
+                    const state = e.data?.state as NavigationState | undefined;
+                    const current = getActiveRouteName(state);
+                    if (current !== routeNameRef.current) {
+                        routeNameRef.current = current;
+                        analyticsService.screen(current);
+                    }
+                },
+            }}
             initialRouteName={initialRoute as 'Home'}
             screenOptions={{
                 headerStyle: {

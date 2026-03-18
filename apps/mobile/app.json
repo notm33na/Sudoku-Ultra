@@ -2,10 +2,14 @@
     "expo": {
         "name": "Sudoku Ultra",
         "slug": "sudoku-ultra",
-        "version": "0.1.0",
+        "version": "1.0.0",
+        "runtimeVersion": {
+            "policy": "appVersion"
+        },
         "orientation": "portrait",
         "icon": "./assets/icon.png",
-        "userInterfaceStyle": "automatic",
+        "userInterfaceStyle": "dark",
+        "scheme": "sudokuultra",
         "splash": {
             "image": "./assets/splash.png",
             "resizeMode": "contain",
@@ -16,6 +20,13 @@
             "assets/models/*.onnx",
             "assets/models/*.tflite"
         ],
+        "updates": {
+            "url": "https://u.expo.dev/YOUR-EAS-PROJECT-ID",
+            "fallbackToCacheTimeout": 0,
+            "requestHeaders": {
+                "expo-channel-name": "production"
+            }
+        },
         "plugins": [
             "onnxruntime-react-native",
             [
@@ -23,13 +34,46 @@
                 {
                     "cameraPermission": "Sudoku Ultra needs camera access to scan printed Sudoku puzzles."
                 }
+            ],
+            [
+                "expo-notifications",
+                {
+                    "icon": "./assets/notification-icon.png",
+                    "color": "#6366f1",
+                    "sounds": [],
+                    "androidMode": "default",
+                    "androidCollapsedTitle": "%(count)s new notifications"
+                }
+            ],
+            [
+                "expo-build-properties",
+                {
+                    "ios": {
+                        "deploymentTarget": "15.1"
+                    },
+                    "android": {
+                        "compileSdkVersion": 34,
+                        "targetSdkVersion": 34,
+                        "minSdkVersion": 23
+                    }
+                }
             ]
         ],
         "ios": {
             "supportsTablet": true,
             "bundleIdentifier": "com.sudokuultra.app",
+            "buildNumber": "1",
+            "appleTeamId": "ABCDE12345",
+            "associatedDomains": [
+                "applinks:sudokuultra.example.com"
+            ],
             "infoPlist": {
-                "NSCameraUsageDescription": "Sudoku Ultra needs camera access to scan printed Sudoku puzzles."
+                "NSCameraUsageDescription": "Sudoku Ultra needs camera access to scan printed Sudoku puzzles.",
+                "NSUserNotificationsUsageDescription": "Get notified when friends invite you to a match or your daily puzzle is ready.",
+                "UIBackgroundModes": ["fetch", "remote-notification"]
+            },
+            "config": {
+                "usesNonExemptEncryption": false
             }
         },
         "android": {
@@ -38,12 +82,43 @@
                 "backgroundColor": "#0f172a"
             },
             "package": "com.sudokuultra.app",
+            "versionCode": 1,
             "permissions": [
-                "android.permission.CAMERA"
+                "android.permission.CAMERA",
+                "android.permission.RECEIVE_BOOT_COMPLETED",
+                "android.permission.VIBRATE",
+                "android.permission.USE_EXACT_ALARM",
+                "android.permission.INTERNET",
+                "android.permission.ACCESS_NETWORK_STATE"
+            ],
+            "intentFilters": [
+                {
+                    "action": "VIEW",
+                    "autoVerify": true,
+                    "data": [
+                        {
+                            "scheme": "https",
+                            "host": "sudokuultra.example.com",
+                            "pathPrefix": "/join"
+                        },
+                        {
+                            "scheme": "https",
+                            "host": "sudokuultra.example.com",
+                            "pathPrefix": "/puzzle"
+                        }
+                    ],
+                    "category": ["BROWSABLE", "DEFAULT"]
+                }
             ]
         },
         "web": {
             "favicon": "./assets/favicon.png"
-        }
+        },
+        "extra": {
+            "eas": {
+                "projectId": "YOUR-EAS-PROJECT-ID"
+            }
+        },
+        "owner": "sudoku-ultra"
     }
 }

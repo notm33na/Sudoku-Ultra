@@ -1,5 +1,23 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Sudoku Ultra — CI/CD Pipeline (GitHub Actions)  v0.4.0
+# Sudoku Ultra — CI/CD Pipeline  v0.5.0
+#
+# Job graph (→ = needs):
+#   lint ──────────────────────────────────────────────────────────────┐
+#   type-check ────────────────────────────────────────────────────────┤
+#   unit-test (engine, Node matrix 18/20) → needs: lint               │
+#   integration-test (game-service, Node matrix 18/20) → needs: lint  │
+#   go-test (multiplayer) ─────────────────────────────────────────────┤
+#   pytest (ml-service, Python matrix 3.11/3.12) ──────────────────────┤
+#   ml-sla → needs: pytest ───────────────────────────────────────────┤
+#   helm-lint ─────────────────────────────────────────────────────────┤
+#   terraform-validate ────────────────────────────────────────────────┤
+#   pact-consumer → needs: lint                                        │
+#   pact-provider → needs: pact-consumer                              │
+#   build-mobile → needs: lint                                         │
+#   docker → needs: [unit-test, integration-test, go-test,            │
+#             pytest, helm-lint] — main push only                      │
+#   deploy → needs: docker — main push only                           │
+#   smoke  → needs: deploy — main push only                           │
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: CI
@@ -17,17 +35,21 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/sudoku-ultra
+  NODE_VERSION_DEFAULT: "20"
+  PYTHON_VERSION_DEFAULT: "3.11"
+  GO_VERSION: "1.22"
 
+# ── Lint ───────────────────────────────────────────────────────────────────────
 jobs:
-  # ── Lint & Type-Check (Node) ─────────────────────────────────────────────────
   lint:
-    name: Lint & Type-Check
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION_DEFAULT }}
           cache: npm
 
       - name: Install dependencies
@@ -36,20 +58,286 @@ jobs:
       - name: Generate Prisma Client
         run: cd services/game-service && npx prisma generate
 
-      - name: Lint
+      - name: Lint (turbo)
         run: npx turbo lint
 
-      - name: Type-check (shared-types)
-        run: cd packages/shared-types && npx tsc --noEmit
+  # ── Type-Check ────────────────────────────────────────────────────────────────
+  type-check:
+    name: Type-Check (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: packages/shared-types
+            label: shared-types
+          - package: packages/sudoku-engine
+            label: sudoku-engine
+          - package: services/game-service
+            label: game-service
+          - package: apps/mobile
+            label: mobile
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Type-check (sudoku-engine)
-        run: cd packages/sudoku-engine && npx tsc --noEmit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION_DEFAULT }}
+          cache: npm
 
-      - name: Type-check (game-service)
-        run: cd services/game-service && npx tsc --noEmit
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Type-check (mobile)
-        run: cd apps/mobile && npx tsc --noEmit
+      - name: Generate Prisma Client
+        run: cd services/game-service && npx prisma generate
+
+      - name: Type-check (${{ matrix.label }})
+        run: cd ${{ matrix.package }} && npx tsc --noEmit
+
+  # ── Unit Tests — sudoku-engine (Node matrix) ──────────────────────────────────
+  unit-test-engine:
+    name: Unit Test — engine (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["18", "20"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build engine
+        run: cd packages/sudoku-engine && npx tsc
+
+      - name: Test with coverage
+        run: |
+          cd packages/sudoku-engine && \
+          npx jest --coverage --passWithNoTests --forceExit \
+            --coverageThreshold='{"global":{"lines":90,"branches":85,"functions":90}}'
+        env:
+          NODE_ENV: test
+
+      - name: Upload coverage
+        if: matrix.node == '20' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-engine
+          path: packages/sudoku-engine/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ── Integration Tests — game-service (Node matrix) ────────────────────────────
+  integration-test:
+    name: Integration Test — game-service (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["18", "20"]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sudoku
+          POSTGRES_PASSWORD: sudoku_test
+          POSTGRES_DB: sudoku_ultra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: cd services/game-service && npx prisma generate
+
+      - name: Run Prisma migrations
+        working-directory: services/game-service
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://sudoku:sudoku_test@localhost:5432/sudoku_ultra_test
+
+      - name: Build dependencies
+        run: npx turbo build --filter=!apps/mobile --filter=!apps/web-admin
+
+      - name: Test with coverage
+        working-directory: services/game-service
+        run: |
+          npx jest --coverage --passWithNoTests --forceExit \
+            --coverageThreshold='{"global":{"lines":80,"branches":75,"functions":80}}'
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://sudoku:sudoku_test@localhost:5432/sudoku_ultra_test
+          JWT_SECRET: ci-test-jwt-secret-32-chars-long!!
+          JWT_REFRESH_SECRET: ci-test-refresh-secret-32-chars!!
+          ML_SERVICE_URL: http://localhost:3003
+
+      - name: Upload coverage
+        if: matrix.node == '20' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-game-service
+          path: services/game-service/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ── Go Tests — multiplayer ────────────────────────────────────────────────────
+  go-test:
+    name: Test — multiplayer (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/multiplayer/go.sum
+
+      - name: Download modules
+        working-directory: services/multiplayer
+        run: go mod download
+
+      - name: Vet
+        working-directory: services/multiplayer
+        run: go vet ./...
+
+      - name: Test with coverage
+        working-directory: services/multiplayer
+        run: |
+          go test -race \
+            -coverprofile=coverage.out \
+            -covermode=atomic \
+            ./...
+          # Enforce 70% coverage threshold
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: ${COVERAGE}%"
+          awk -v cov="$COVERAGE" 'BEGIN { if (cov+0 < 70) { print "FAIL: coverage " cov "% < 70% threshold"; exit 1 } }'
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-multiplayer
+          path: services/multiplayer/coverage.out
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ── Python Tests — ml-service (Python matrix) ─────────────────────────────────
+  pytest:
+    name: pytest — ml-service (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: services/ml-service/requirements.txt
+
+      - name: Install dependencies
+        working-directory: services/ml-service
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        working-directory: services/ml-service
+        run: |
+          pytest tests/ \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=75 \
+            -x -q
+        env:
+          ENV: test
+          MLFLOW_TRACKING_URI: ""
+          QDRANT_URL: ""
+          OLLAMA_URL: ""
+
+      - name: Upload coverage
+        if: matrix.python == '3.11' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-ml-service
+          path: services/ml-service/coverage.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ── ML Performance SLAs ───────────────────────────────────────────────────────
+  ml-sla:
+    name: ML SLA — ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    needs: pytest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11"]   # single version — SLAs are functional, not compat checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: services/ml-service/requirements.txt
+
+      - name: Install dependencies
+        working-directory: services/ml-service
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run ML SLA checks (sklearn models, n_samples=500)
+        working-directory: services/ml-service
+        run: |
+          python ../../ml/scripts/check_sla.py \
+            --n-samples 500 \
+            --n-trials 1 \
+            --json | tee /tmp/sla-results.json
+          # Re-run without --json to get human-readable output in logs
+          python ../../ml/scripts/check_sla.py \
+            --n-samples 500 \
+            --n-trials 1
+        env:
+          ENV: test
+          MLFLOW_TRACKING_URI: ""
+          QDRANT_URL: ""
+          OLLAMA_URL: ""
+
+      - name: Upload SLA results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-sla-results-py${{ matrix.python }}
+          path: /tmp/sla-results.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   # ── Helm Lint ─────────────────────────────────────────────────────────────────
   helm-lint:
@@ -63,13 +351,27 @@ jobs:
         with:
           version: v3.15.0
 
-      - name: Helm lint
+      - name: Helm lint (base values)
         run: |
           helm lint infra/helm/sudoku-ultra \
             --set global.jwtSecret=ci-secret \
             --set global.postgresUrl=postgresql://u:p@host/db
 
-      - name: Helm template (render check)
+      - name: Helm lint (prod values)
+        run: |
+          helm lint infra/helm/sudoku-ultra \
+            -f infra/helm/sudoku-ultra/values.prod.yaml \
+            --set global.jwtSecret=ci-secret \
+            --set global.postgresUrl=postgresql://u:p@host/db
+
+      - name: Helm lint (staging values)
+        run: |
+          helm lint infra/helm/sudoku-ultra \
+            -f infra/helm/sudoku-ultra/values.staging.yaml \
+            --set global.jwtSecret=ci-secret \
+            --set global.postgresUrl=postgresql://u:p@host/db
+
+      - name: Helm template render check
         run: |
           helm template sudoku-ultra infra/helm/sudoku-ultra \
             --set global.jwtSecret=ci-secret \
@@ -99,139 +401,28 @@ jobs:
         working-directory: infra/terraform
         run: terraform fmt -check -recursive
 
-  # ── Node.js Tests ─────────────────────────────────────────────────────────────
-  test-node:
-    name: Test (${{ matrix.package }})
-    runs-on: ubuntu-latest
-    needs: lint
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - packages/sudoku-engine
-          - services/game-service
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Generate Prisma Client
-        run: cd services/game-service && npx prisma generate
-
-      - name: Build dependencies
-        run: npx turbo build
-
-      - name: Run tests
-        run: cd ${{ matrix.package }} && npx jest --coverage --passWithNoTests --forceExit
-        env:
-          NODE_ENV: test
-
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.package == 'packages/sudoku-engine' && 'engine' || 'game-service' }}
-          path: ${{ matrix.package }}/coverage/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # ── Go Tests (multiplayer service) ───────────────────────────────────────────
-  test-go:
-    name: Test (multiplayer — Go)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-          cache-dependency-path: services/multiplayer/go.sum
-
-      - name: Download modules
-        working-directory: services/multiplayer
-        run: go mod download
-
-      - name: Vet
-        working-directory: services/multiplayer
-        run: go vet ./...
-
-      - name: Test
-        working-directory: services/multiplayer
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-multiplayer
-          path: services/multiplayer/coverage.out
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # ── Python Tests (ml-service) ─────────────────────────────────────────────────
-  test-python:
-    name: Test (ml-service — Python)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: services/ml-service/requirements.txt
-
-      - name: Install dependencies
-        working-directory: services/ml-service
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run tests
-        working-directory: services/ml-service
-        run: |
-          pytest tests/ \
-            --cov=app \
-            --cov-report=xml \
-            --cov-report=term-missing \
-            -x -q
-        env:
-          ENV: test
-          MLFLOW_TRACKING_URI: ""
-
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-ml-service
-          path: services/ml-service/coverage.xml
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # ── Pact Consumer Contract Tests ──────────────────────────────────────────────
+  # ── Pact Consumer Contracts ───────────────────────────────────────────────────
   pact-consumer:
     name: Pact Consumer Contracts
     runs-on: ubuntu-latest
     needs: lint
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION_DEFAULT }}
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Run Pact consumer tests
-        run: npx jest --config pact/jest.config.js --testPathPattern=consumer
+        run: npx jest --config pact/jest.config.js --testPathPattern=consumer --forceExit
         env:
           NODE_ENV: test
+          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL || '' }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN || '' }}
 
       - name: Upload pact files
         uses: actions/upload-artifact@v4
@@ -240,16 +431,31 @@ jobs:
           path: pact/pacts/
           retention-days: 14
 
-  # ── Build ─────────────────────────────────────────────────────────────────────
-  build:
-    name: Build (Node)
+  # ── Pact Provider Verification ────────────────────────────────────────────────
+  pact-provider:
+    name: Pact Provider Verification — game-service
     runs-on: ubuntu-latest
-    needs: lint
+    needs: pact-consumer
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sudoku
+          POSTGRES_PASSWORD: sudoku_test
+          POSTGRES_DB: sudoku_ultra_pact
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION_DEFAULT }}
           cache: npm
 
       - name: Install dependencies
@@ -258,19 +464,91 @@ jobs:
       - name: Generate Prisma Client
         run: cd services/game-service && npx prisma generate
 
-      - name: Build all packages
-        run: npx turbo build
+      - name: Run Prisma migrations
+        working-directory: services/game-service
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://sudoku:sudoku_test@localhost:5432/sudoku_ultra_pact
 
-  # ── Docker Build & Push (main only) ──────────────────────────────────────────
-  docker:
-    name: Docker (${{ matrix.service }})
+      - name: Build game-service
+        run: cd services/game-service && npx tsc
+
+      - name: Start game-service (background)
+        run: |
+          cd services/game-service && node dist/server.js &
+          echo $! > /tmp/game-service.pid
+          # Wait for service to be ready
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health && break
+            echo "Waiting for game-service ($i/30)..."
+            sleep 2
+          done
+        env:
+          NODE_ENV: test
+          PORT: 3001
+          DATABASE_URL: postgresql://sudoku:sudoku_test@localhost:5432/sudoku_ultra_pact
+          JWT_SECRET: ci-test-jwt-secret-32-chars-long!!
+          JWT_REFRESH_SECRET: ci-test-refresh-secret-32-chars!!
+          ML_SERVICE_URL: http://localhost:3003
+
+      - name: Download pact files
+        uses: actions/download-artifact@v4
+        with:
+          name: pact-files
+          path: pact/pacts/
+
+      - name: Run Pact provider verification
+        run: npx jest --config pact/jest.config.js --testPathPattern=provider --forceExit
+        env:
+          NODE_ENV: test
+          PACT_PROVIDER_URL: http://localhost:3001
+          GIT_SHA: ${{ github.sha }}
+          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL || '' }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN || '' }}
+
+      - name: Stop game-service
+        if: always()
+        run: kill $(cat /tmp/game-service.pid) 2>/dev/null || true
+
+  # ── Build Mobile (Expo bundle check) ──────────────────────────────────────────
+  build-mobile:
+    name: Build Mobile (Expo export)
     runs-on: ubuntu-latest
-    needs: [test-node, test-go, test-python, helm-lint]
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION_DEFAULT }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Expo export (bundle check)
+        working-directory: apps/mobile
+        run: npx expo export --platform all --output-dir /tmp/expo-export --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          NODE_ENV: production
+
+  # ── Docker Build & Push ───────────────────────────────────────────────────────
+  docker:
+    name: Docker — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs:
+      - unit-test-engine
+      - integration-test
+      - go-test
+      - pytest
+      - ml-sla
+      - helm-lint
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
-      id-token: write    # for cosign OIDC signing
+      id-token: write    # cosign OIDC keyless signing
     strategy:
       fail-fast: false
       matrix:
@@ -284,8 +562,14 @@ jobs:
           - service: ml-service
             context: services/ml-service
             dockerfile: services/ml-service/Dockerfile
+          - service: notifications
+            context: services/notifications
+            dockerfile: services/notifications/Dockerfile
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -305,6 +589,7 @@ jobs:
           tags: |
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
 
       - name: Build & push ${{ matrix.service }}
         id: build
@@ -317,20 +602,28 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true
           sbom: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Sign image with cosign (keyless OIDC)
+      - name: Sign image (keyless OIDC)
         run: |
           cosign sign --yes \
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
 
-  # ── Update Helm image tag & trigger ArgoCD ────────────────────────────────────
+      - name: Verify cosign signature
+        run: |
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
+
+  # ── Deploy (ArgoCD sync) ──────────────────────────────────────────────────────
   deploy:
-    name: Deploy (ArgoCD sync)
+    name: Deploy — ArgoCD sync
     runs-on: ubuntu-latest
     needs: docker
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -364,9 +657,26 @@ jobs:
         run: |
           curl -s -X POST \
             -H "Authorization: Bearer ${ARGOCD_AUTH_TOKEN}" \
+            -H "Content-Type: application/json" \
             "${ARGOCD_SERVER}/api/v1/applications/sudoku-ultra/sync" \
-            -d '{"prune":true,"dryRun":false}' \
+            -d '{"prune":true,"dryRun":false,"force":false}' \
             --fail-with-body
+
+      - name: Wait for ArgoCD sync to complete
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sf \
+              -H "Authorization: Bearer ${ARGOCD_AUTH_TOKEN}" \
+              "${ARGOCD_SERVER}/api/v1/applications/sudoku-ultra" \
+              | jq -r '.status.sync.status')
+            echo "Sync status: ${STATUS} (attempt $i/30)"
+            [ "$STATUS" = "Synced" ] && exit 0
+            sleep 10
+          done
+          echo "ArgoCD sync did not complete within 5 minutes" && exit 1
 
   # ── k6 Smoke Test (post-deploy) ───────────────────────────────────────────────
   smoke:
@@ -386,3 +696,12 @@ jobs:
           ML_URL: ${{ secrets.PROD_ML_URL }}
           AUTH_TOKEN: ${{ secrets.SMOKE_AUTH_TOKEN }}
         run: k6 run k6/scripts/smoke.js
+
+      - name: Upload k6 results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-results
+          path: k6/results/
+          if-no-files-found: ignore
+          retention-days: 14

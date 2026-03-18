@@ -1,0 +1,70 @@
+{
+  "uid": "sudoku-ml",
+  "title": "Sudoku Ultra — ML Models",
+  "tags": ["ml", "models"],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Classifier Accuracy",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "ml_model_accuracy{model=\"difficulty-classifier\"}", "legendFormat": "accuracy", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{"color":"red","value":null},{"color":"yellow","value":0.82},{"color":"green","value":0.88}] } } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Churn AUC-ROC",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "ml_model_auc_roc{model=\"churn-predictor\"}", "legendFormat": "AUC-ROC", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{"color":"red","value":null},{"color":"yellow","value":0.75},{"color":"green","value":0.80}] } } }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Clustering Silhouette",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "ml_model_silhouette{model=\"skill-clustering\"}", "legendFormat": "silhouette", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"red","value":null},{"color":"yellow","value":0.40},{"color":"green","value":0.50}] } } }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Regression RMSE",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "ml_model_rmse{model=\"adaptive-regression\"}", "legendFormat": "RMSE", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"yellow","value":0.25},{"color":"red","value":0.30}] } } }
+    },
+    {
+      "id": 5, "type": "stat", "title": "Classify Req/s",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "sum(rate(http_requests_total{service=\"ml-service\",path=~\".*/classify.*\"}[1m]))", "legendFormat": "req/s", "datasource": { "uid": "prometheus" } }]
+    },
+    {
+      "id": 6, "type": "stat", "title": "Active MLflow Runs",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "mlflow_active_runs", "legendFormat": "runs", "datasource": { "uid": "prometheus" } }]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Model Inference Latency (P99)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "1000 * histogram_quantile(0.99, sum(rate(ml_inference_duration_seconds_bucket[5m])) by (model, le))",
+        "legendFormat": "{{model}} P99", "datasource": { "uid": "prometheus" }
+      }],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Feature Store Write Rate",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(rate(ml_feature_store_writes_total[5m])) by (feature_group)",
+        "legendFormat": "{{feature_group}}", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Model Drift (PSI) — Last 7 Days",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "targets": [{
+        "expr": "ml_model_psi",
+        "legendFormat": "{{model}}", "datasource": { "uid": "prometheus" }
+      }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"yellow","value":0.1},{"color":"red","value":0.2}] } } }
+    }
+  ]
+}

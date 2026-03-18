@@ -1,0 +1,76 @@
+{
+  "uid": "sudoku-app",
+  "title": "Sudoku Ultra — Application",
+  "tags": ["app", "api"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Request Rate (req/s)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "sum(rate(http_requests_total[1m]))",
+        "legendFormat": "req/s", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Error Rate (%)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "100 * sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
+        "legendFormat": "error %", "datasource": { "uid": "prometheus" }
+      }],
+      "fieldConfig": { "defaults": { "thresholds": {
+        "mode": "absolute",
+        "steps": [{"color":"green","value":null},{"color":"yellow","value":1},{"color":"red","value":5}]
+      }}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "P99 Latency (ms)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "1000 * histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+        "legendFormat": "P99 ms", "datasource": { "uid": "prometheus" }
+      }],
+      "fieldConfig": { "defaults": { "unit": "ms", "thresholds": {
+        "mode": "absolute",
+        "steps": [{"color":"green","value":null},{"color":"yellow","value":500},{"color":"red","value":2000}]
+      }}}
+    },
+    {
+      "id": 4, "type": "stat", "title": "Active WebSocket Rooms",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "multiplayer_active_rooms",
+        "legendFormat": "rooms", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "HTTP Request Rate by Service",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(rate(http_requests_total[1m])) by (service)",
+        "legendFormat": "{{service}}", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "HTTP Latency Percentiles",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "1000 * histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))", "legendFormat": "P50 {{service}}", "datasource": { "uid": "prometheus" } },
+        { "expr": "1000 * histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))", "legendFormat": "P95 {{service}}", "datasource": { "uid": "prometheus" } },
+        { "expr": "1000 * histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))", "legendFormat": "P99 {{service}}", "datasource": { "uid": "prometheus" } }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 7, "type": "logs", "title": "Application Logs (Loki)",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "targets": [{
+        "expr": "{service=~\"game-service|ml-service|multiplayer\", level=~\"error|warn\"} | json",
+        "datasource": { "uid": "loki" }
+      }]
+    }
+  ]
+}

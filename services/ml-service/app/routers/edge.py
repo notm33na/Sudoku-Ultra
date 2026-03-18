@@ -69,6 +69,21 @@ async def download_scanner_model():
         return {"error": "Scanner model not exported yet. Run: python -m app.ml.export_onnx"}
 
 
+@router.get("/models/clustering")
+async def download_clustering_model():
+    """Download the ONNX clustering model for on-device skill segment inference."""
+    onnx_path = MODEL_DIR / "clustering.onnx"
+
+    if onnx_path.exists():
+        return FileResponse(
+            str(onnx_path),
+            media_type="application/octet-stream",
+            filename="clustering.onnx",
+        )
+    else:
+        return {"error": "Clustering model not exported yet. Run: python -m app.ml.export_onnx"}
+
+
 @router.post("/batch-classify", response_model=BatchClassifyResult)
 async def batch_classify(request: BatchClassifyRequest) -> BatchClassifyResult:
     """
@@ -96,6 +111,7 @@ async def edge_ai_status():
     classifier_onnx = MODEL_DIR / "classifier.onnx"
     classifier_json = MODEL_DIR / "classifier.json"
     scanner_onnx = MODEL_DIR / "scanner.onnx"
+    clustering_onnx = MODEL_DIR / "clustering.onnx"
 
     models["classifier"] = {
         "onnx_available": classifier_onnx.exists(),
@@ -105,6 +121,10 @@ async def edge_ai_status():
     models["scanner"] = {
         "onnx_available": scanner_onnx.exists(),
         "size_kb": round(scanner_onnx.stat().st_size / 1024, 1) if scanner_onnx.exists() else None,
+    }
+    models["clustering"] = {
+        "onnx_available": clustering_onnx.exists(),
+        "size_kb": round(clustering_onnx.stat().st_size / 1024, 1) if clustering_onnx.exists() else None,
     }
 
     return {

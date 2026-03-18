@@ -1,0 +1,83 @@
+{{- if .Values.serviceAccount.create }}
+# ── Role — least-privilege for all sudoku-ultra service accounts ──────────────
+# Allows pods to:
+#   - Read their own pod info (for health checks / leader election)
+#   - Read ConfigMaps in namespace (for dynamic config reload)
+# Does NOT grant: secrets read (sourced from Vault agent), cluster-admin, etc.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-app
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+rules:
+  # Read pods — used by Vault agent injector and health-check scripts
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs:     ["get", "list", "watch"]
+  # Read ConfigMaps — nginx config, otel-collector config
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs:     ["get", "list", "watch"]
+  # Read own service endpoints (for service discovery)
+  - apiGroups: [""]
+    resources: ["endpoints", "services"]
+    verbs:     ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-app
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sudoku-ultra.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-app
+  apiGroup: rbac.authorization.k8s.io
+---
+# ── Prometheus ClusterRole — read-only metrics discovery ──────────────────────
+{{- if .Values.prometheus.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-prometheus
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs:     ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-prometheus
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sudoku-ultra.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Release.Name }}-prometheus
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}

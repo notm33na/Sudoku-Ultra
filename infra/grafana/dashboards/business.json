@@ -1,0 +1,65 @@
+{
+  "uid": "sudoku-business",
+  "title": "Sudoku Ultra — Business Metrics",
+  "tags": ["business", "dau", "retention"],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "DAU (today)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sudoku_daily_active_users", "legendFormat": "DAU", "datasource": { "uid": "prometheus" } }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Games Completed (1h)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(rate(sudoku_games_completed_total[1h])) * 3600", "legendFormat": "games/hr", "datasource": { "uid": "prometheus" } }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Avg Completion Rate (7d)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "avg_over_time(sudoku_completion_rate[7d])", "legendFormat": "rate", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Active Streak Users",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sudoku_users_with_active_streak", "legendFormat": "users", "datasource": { "uid": "prometheus" } }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "DAU — 7 Day Trend",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sudoku_daily_active_users", "legendFormat": "DAU", "datasource": { "uid": "prometheus" } }]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Games by Difficulty",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(rate(sudoku_games_completed_total[1h])) by (difficulty) * 3600",
+        "legendFormat": "{{difficulty}}", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 7, "type": "piechart", "title": "Difficulty Distribution (7d)",
+      "gridPos": { "x": 0, "y": 12, "w": 8, "h": 8 },
+      "targets": [{
+        "expr": "sum(increase(sudoku_games_completed_total[7d])) by (difficulty)",
+        "legendFormat": "{{difficulty}}", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Churn Risk Distribution",
+      "gridPos": { "x": 8, "y": 12, "w": 8, "h": 8 },
+      "targets": [{
+        "expr": "sum(sudoku_churn_risk_users) by (risk_band)",
+        "legendFormat": "{{risk_band}}", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "New Users per Day",
+      "gridPos": { "x": 16, "y": 12, "w": 8, "h": 8 },
+      "targets": [{ "expr": "sudoku_new_users_daily", "legendFormat": "new users", "datasource": { "uid": "prometheus" } }]
+    }
+  ]
+}

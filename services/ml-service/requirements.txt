@@ -63,6 +63,21 @@ langchain-huggingface==0.0.6
 qdrant-client==1.10.1
 sentence-transformers==3.1.1
 
+# MinIO / S3 artifact store
+boto3==1.34.144
+
+# Observability
+opentelemetry-sdk==1.25.0
+opentelemetry-exporter-otlp-proto-http==1.25.0
+opentelemetry-instrumentation-fastapi==0.46b0
+opentelemetry-instrumentation-requests==0.46b0
+opentelemetry-instrumentation-psycopg2==0.46b0
+sentry-sdk[fastapi]==2.8.0
+
+# Analytics / rate limiting
+slowapi==0.1.9
+great-expectations==0.18.14
+
 # Testing
 pytest==8.2.0
 pytest-asyncio==0.23.7

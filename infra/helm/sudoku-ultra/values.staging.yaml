@@ -79,6 +79,13 @@ nginx:
   service:
     type: ClusterIP   # staging uses an ingress, not a bare LoadBalancer
 
+# ── minio ─────────────────────────────────────────────────────────────────────
+minio:
+  enabled: true
+  persistence:
+    size: 20Gi
+    storageClass: ""
+
 # ── ollama ────────────────────────────────────────────────────────────────────
 ollama:
   enabled: true   # staging runs Ollama locally for RAG tutor testing

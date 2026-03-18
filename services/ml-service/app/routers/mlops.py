@@ -93,18 +93,19 @@ async def check_drift(req: DriftCheckRequest):
 # Supported model names and their canonical artifact paths.
 _SUPPORTED_MODELS = {
     "difficulty-classifier",
-    "adaptive-difficulty",
+    "adaptive-regression",
     "digit-scanner",
     "skill-clustering",
     "churn-predictor",
+    "gan-generator",
 }
 
 
 class RetrainRequest(BaseModel):
     model_name: str = Field(..., description=(
         "Which model to retrain. One of: "
-        "difficulty-classifier, adaptive-difficulty, digit-scanner, "
-        "skill-clustering, churn-predictor"
+        "difficulty-classifier, adaptive-regression, digit-scanner, "
+        "skill-clustering, churn-predictor, gan-generator"
     ))
     n_samples: int = Field(10000, ge=100, description="Training samples")
     n_trials: int = Field(50, ge=5, description="Optuna trials (ignored for models without HPO)")
@@ -146,83 +147,119 @@ async def _run_retraining(
     n_trials: int,
     job_id: str,
 ) -> None:
-    """Execute model retraining (runs in background)."""
+    """
+    Execute model retraining (runs in background).
+
+    Each branch trains the model, logs the run to MLflow with the job_id tag
+    so that Airflow DAGs can find it via search_runs(tags.job_id=...), and
+    also writes to the JSON-based model_version_registry for backward compat.
+    """
     from app.logging import setup_logging
+    from app.config import settings
     logger = setup_logging()
 
     try:
-        if model_name == "difficulty-classifier":
-            from app.ml.train_classifier import train_and_save
-            metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
-            model_version_registry.register_model(
-                name="difficulty-classifier",
-                version=f"auto-{job_id}",
-                model_path="ml/models/difficulty_classifier.pkl",
-                metrics={"test_accuracy": metrics["test_accuracy"]},
-                stage="staging",
-                tags={"job_id": job_id, "trigger": "api"},
-            )
+        import mlflow
+        mlflow.set_tracking_uri(settings.MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(settings.MLFLOW_EXPERIMENT_NAME)
 
-        elif model_name == "adaptive-difficulty":
-            from app.ml.train_regression import train_and_save
-            metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
-            model_version_registry.register_model(
-                name="adaptive-difficulty",
-                version=f"auto-{job_id}",
-                model_path="ml/models/adaptive_regression.pkl",
-                metrics={"test_rmse": metrics["test_rmse"]},
-                stage="staging",
-                tags={"job_id": job_id, "trigger": "api"},
-            )
+        with mlflow.start_run(
+            run_name=f"retrain-{model_name}-{job_id}",
+            tags={"job_id": job_id, "model_name": model_name, "trigger": "api"},
+        ) as run:
+            run_id = run.info.run_id
+            mlflow.log_param("n_samples", n_samples)
+            mlflow.log_param("n_trials", n_trials)
 
-        elif model_name == "digit-scanner":
-            from app.ml.train_scanner import train_and_save
-            # train_scanner uses samples_per_class (per digit class, 10 classes total).
-            # Map n_samples → samples_per_class so the caller interface stays consistent.
-            samples_per_class = max(100, n_samples // 10)
-            metrics = train_and_save(samples_per_class=samples_per_class)
-            model_version_registry.register_model(
-                name="digit-scanner",
-                version=f"auto-{job_id}",
-                model_path="ml/models/scanner.pt",
-                metrics={"best_val_accuracy": metrics["best_val_accuracy"]},
-                stage="staging",
-                tags={"job_id": job_id, "trigger": "api"},
-            )
+            if model_name == "difficulty-classifier":
+                from app.ml.train_classifier import train_and_save
+                metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
+                mlflow.log_metrics({"test_accuracy": metrics["test_accuracy"],
+                                    "test_f1_macro": metrics.get("test_f1_macro", 0.0)})
+                mlflow.log_artifact("ml/models/difficulty_classifier.pkl")
+                mlflow.log_artifact("ml/models/label_encoder.pkl")
+                model_version_registry.register_model(
+                    name="difficulty-classifier", version=f"auto-{job_id}",
+                    model_path="ml/models/difficulty_classifier.pkl",
+                    metrics={"test_accuracy": metrics["test_accuracy"]},
+                    stage="staging", tags={"job_id": job_id},
+                )
 
-        elif model_name == "skill-clustering":
-            from app.ml.train_clustering import train_and_save
-            # train_clustering has no Optuna HPO; n_trials is intentionally ignored.
-            metrics = train_and_save(n_samples=n_samples)
-            model_version_registry.register_model(
-                name="skill-clustering",
-                version=f"auto-{job_id}",
-                model_path="ml/models/skill_clustering.pkl",
-                metrics={"silhouette_score": metrics["silhouette_score"]},
-                stage="staging",
-                tags={"job_id": job_id, "trigger": "api"},
-            )
+            elif model_name == "adaptive-regression":
+                from app.ml.train_regression import train_and_save
+                metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
+                mlflow.log_metrics({"test_rmse": metrics["test_rmse"],
+                                    "test_r2": metrics.get("test_r2", 0.0)})
+                mlflow.log_artifact("ml/models/recommender.pkl")
+                model_version_registry.register_model(
+                    name="adaptive-regression", version=f"auto-{job_id}",
+                    model_path="ml/models/recommender.pkl",
+                    metrics={"test_rmse": metrics["test_rmse"]},
+                    stage="staging", tags={"job_id": job_id},
+                )
 
-        elif model_name == "churn-predictor":
-            from app.ml.train_churn import train_and_save
-            metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
-            model_version_registry.register_model(
-                name="churn-predictor",
-                version=f"auto-{job_id}",
-                model_path="ml/models/churn_predictor.pkl",
-                metrics={
-                    "test_auc_roc": metrics["test_auc_roc"],
-                    "test_f1": metrics["test_f1"],
-                },
-                stage="staging",
-                tags={"job_id": job_id, "trigger": "api"},
-            )
+            elif model_name == "digit-scanner":
+                from app.ml.train_scanner import train_and_save
+                samples_per_class = max(100, n_samples // 10)
+                metrics = train_and_save(samples_per_class=samples_per_class)
+                mlflow.log_metrics({"best_val_accuracy": metrics["best_val_accuracy"]})
+                mlflow.log_artifact("ml/models/scanner.pt")
+                model_version_registry.register_model(
+                    name="digit-scanner", version=f"auto-{job_id}",
+                    model_path="ml/models/scanner.pt",
+                    metrics={"best_val_accuracy": metrics["best_val_accuracy"]},
+                    stage="staging", tags={"job_id": job_id},
+                )
 
-        else:
-            # Should never reach here — validated at the endpoint level above.
-            raise ValueError(f"Unknown model: {model_name}")
+            elif model_name == "skill-clustering":
+                from app.ml.train_clustering import train_and_save
+                metrics = train_and_save(n_samples=n_samples)
+                mlflow.log_metrics({"silhouette_score": metrics["silhouette_score"]})
+                mlflow.log_artifact("ml/models/clustering.pkl")
+                model_version_registry.register_model(
+                    name="skill-clustering", version=f"auto-{job_id}",
+                    model_path="ml/models/clustering.pkl",
+                    metrics={"silhouette_score": metrics["silhouette_score"]},
+                    stage="staging", tags={"job_id": job_id},
+                )
 
-        logger.info(f"[Retrain] Job {job_id} completed successfully for '{model_name}'")
+            elif model_name == "churn-predictor":
+                from app.ml.train_churn import train_and_save
+                metrics = train_and_save(n_samples=n_samples, n_trials=n_trials)
+                mlflow.log_metrics({"test_auc_roc": metrics["test_auc_roc"],
+                                    "test_f1": metrics["test_f1"]})
+                mlflow.log_artifact("ml/models/churn_model.pkl")
+                mlflow.log_artifact("ml/models/churn_scaler.pkl")
+                model_version_registry.register_model(
+                    name="churn-predictor", version=f"auto-{job_id}",
+                    model_path="ml/models/churn_model.pkl",
+                    metrics={"test_auc_roc": metrics["test_auc_roc"]},
+                    stage="staging", tags={"job_id": job_id},
+                )
+
+            elif model_name == "gan-generator":
+                from app.ml.train_gan import train_and_save
+                metrics = train_and_save(epochs=50)
+                mlflow.log_metrics({"best_g_loss": metrics["best_g_loss"]})
+                mlflow.log_artifact("ml/models/sudoku_gan_generator.pt")
+                model_version_registry.register_model(
+                    name="gan-generator", version=f"auto-{job_id}",
+                    model_path="ml/models/sudoku_gan_generator.pt",
+                    metrics={"best_g_loss": metrics["best_g_loss"]},
+                    stage="staging", tags={"job_id": job_id},
+                )
+
+            else:
+                raise ValueError(f"Unknown model: {model_name}")
+
+            mlflow.set_tag("status", "success")
+
+        logger.info(f"[Retrain] Job {job_id} completed for '{model_name}' (run_id={run_id})")
 
     except Exception as e:
         logger.error(f"[Retrain] Job {job_id} failed for '{model_name}': {e}")
+        try:
+            mlflow.set_tag("status", "failed")
+            mlflow.set_tag("error", str(e)[:200])
+        except Exception:
+            pass

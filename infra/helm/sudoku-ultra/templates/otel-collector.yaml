@@ -1,0 +1,154 @@
+{{- if .Values.otelCollector.enabled }}
+# ── OTel Collector Deployment ─────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-otel-collector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-otel-collector
+        {{- include "sudoku-ultra.labels" . | nindent 8 }}
+        app.kubernetes.io/component: otel-collector
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8888"
+    spec:
+      containers:
+        - name: otel-collector
+          image: {{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/conf/otel-collector.yml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: metrics
+              containerPort: 8888
+              protocol: TCP
+            - name: prom-export
+              containerPort: 8889
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133    # health_check extension default port
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.otelCollector.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-otel-collector-config
+---
+# ── OTel Collector ConfigMap ──────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-otel-collector-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  otel-collector.yml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: {{ .Values.otelCollector.memoryLimitMib }}
+        spike_limit_mib: {{ .Values.otelCollector.memorySpikeLimitMib }}
+      resource:
+        attributes:
+          - key: cluster
+            value: sudoku-ultra
+            action: insert
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    exporters:
+      otlp/jaeger:
+        endpoint: {{ .Release.Name }}-jaeger:4317
+        tls:
+          insecure: true
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        namespace: otelcol
+      debug:
+        verbosity: basic
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers:  [otlp]
+          processors: [memory_limiter, batch, resource]
+          exporters:  [otlp/jaeger, debug]
+        metrics:
+          receivers:  [otlp]
+          processors: [memory_limiter, batch]
+          exporters:  [prometheus]
+---
+# ── OTel Collector Service ────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-otel-collector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+    - name: prom-export
+      port: 8889
+      targetPort: prom-export
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

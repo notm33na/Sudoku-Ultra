@@ -19,12 +19,17 @@ import (
 	"github.com/sudoku-ultra/multiplayer/internal/hub"
 	"github.com/sudoku-ultra/multiplayer/internal/models"
 	"github.com/sudoku-ultra/multiplayer/internal/room"
+	"github.com/sudoku-ultra/multiplayer/internal/telemetry"
 )
 
 func main() {
 	cfg := config.Load()
 	log := buildLogger(cfg.LogLevel)
 	defer log.Sync()
+
+	// Initialise OTel tracing
+	otelShutdown := telemetry.Init(context.Background(), "multiplayer", "0.1.0", log)
+	defer otelShutdown(context.Background())
 
 	log.Info("starting multiplayer service", zap.String("port", cfg.Port))
 

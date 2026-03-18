@@ -34,10 +34,20 @@ spec:
         prometheus.io/port: {{ .Values.gameService.service.port | quote }}
     spec:
       serviceAccountName: {{ include "sudoku-ultra.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: {{ .Values.podSecurity.runAsNonRoot }}
+        runAsUser:    {{ .Values.podSecurity.runAsUser }}
+        runAsGroup:   {{ .Values.podSecurity.runAsGroup }}
+        fsGroup:      {{ .Values.podSecurity.fsGroup }}
       containers:
         - name: game-service
           image: {{ include "sudoku-ultra.image" (dict "name" .Values.gameService.image.name "root" .) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: {{ .Values.podSecurity.allowPrivilegeEscalation }}
+            readOnlyRootFilesystem:   {{ .Values.podSecurity.readOnlyRootFilesystem }}
+            capabilities:
+              drop: {{- toYaml .Values.podSecurity.dropCapabilities | nindent 16 }}
           ports:
             - name: http
               containerPort: {{ .Values.gameService.service.port }}

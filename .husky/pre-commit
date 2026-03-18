@@ -1,1 +1,39 @@
+#!/usr/bin/env sh
+# ── Sudoku Ultra pre-commit hook ──────────────────────────────────────────────
+#
+# Runs on every `git commit`. Blocks the commit if:
+#   1. git-secrets detects a hardcoded AWS key, private key, or known secret pattern
+#   2. lint-staged fails (ESLint + Prettier on staged files)
+#
+# Prerequisites (install once):
+#   brew install git-secrets          # macOS
+#   apt-get install git-secrets       # Ubuntu (or build from source)
+#   git secrets --register-aws        # add AWS pattern set
+#   git secrets --install             # wire into this repo's hooks
+#
+# If git-secrets is not installed, the scan is skipped with a warning so that
+# developers on machines without it are not blocked (CI enforces via TruffleHog).
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── 1. Secret scan (git-secrets) ──────────────────────────────────────────────
+if command -v git-secrets >/dev/null 2>&1; then
+  echo "[pre-commit] Running git-secrets scan..."
+  git secrets --scan
+  if [ $? -ne 0 ]; then
+    echo ""
+    echo "✖  git-secrets blocked this commit: a potential secret was detected."
+    echo "   Review the output above, remove the secret, and commit again."
+    echo "   If this is a false positive, add a pattern to .gitsecretsallowlist"
+    echo "   and run: git secrets --add --allowed '<pattern>'"
+    exit 1
+  fi
+  echo "[pre-commit] git-secrets: clean ✓"
+else
+  echo "[pre-commit] WARNING: git-secrets not installed — secret scan skipped."
+  echo "   Install: https://github.com/awslabs/git-secrets"
+  echo "   CI will catch secrets via TruffleHog on push."
+fi
+
+# ── 2. Lint-staged (ESLint + Prettier) ────────────────────────────────────────
+echo "[pre-commit] Running lint-staged..."
 npx lint-staged

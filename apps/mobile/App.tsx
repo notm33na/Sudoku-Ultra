@@ -4,12 +4,24 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar, View, ActivityIndicator } from 'react-native';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { RootStackParamList } from './src/types/navigation';
+import { init as initSentry, wrap as wrapSentry } from './src/services/sentry';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { analyticsService } from './src/services/analytics.service';
+import { linking } from './src/utils/deepLink';
+
+// Initialise Sentry before first render
+initSentry();
 
 const GAME_API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 const TOKEN = process.env.EXPO_PUBLIC_API_TOKEN ?? '';
 
-export default function App(): React.JSX.Element {
+function App(): React.JSX.Element {
     const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList | null>(null);
+
+    useEffect(() => {
+        void analyticsService.init();
+        return () => analyticsService.destroy();
+    }, []);
 
     useEffect(() => {
         async function checkOnboarding() {
@@ -38,11 +50,15 @@ export default function App(): React.JSX.Element {
     }
 
     return (
-        <SafeAreaProvider>
-            <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
-            <NavigationContainer>
-                <RootNavigator initialRoute={initialRoute} />
-            </NavigationContainer>
-        </SafeAreaProvider>
+        <ErrorBoundary>
+            <SafeAreaProvider>
+                <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
+                <NavigationContainer linking={linking}>
+                    <RootNavigator initialRoute={initialRoute} />
+                </NavigationContainer>
+            </SafeAreaProvider>
+        </ErrorBoundary>
     );
 }
+
+export default wrapSentry(App);

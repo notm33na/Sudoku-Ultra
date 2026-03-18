@@ -1,0 +1,449 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Sudoku Ultra — Nightly Pipeline  v0.5.0
+#
+# Triggers: cron 02:00 UTC daily + manual dispatch
+#
+# Jobs (run sequentially to avoid self-DoS on k6):
+#   1. dependency-audit   — npm audit + pip-audit + govulncheck
+#   2. k6-load-tests      — all k6 scripts sequentially vs staging
+#   3. model-drift        — calls /api/v1/analytics/drift-summary
+#   4. lighthouse         — mobile performance audit
+#   5. edge-benchmarks    — on-device Edge AI benchmark on Android emulator
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 02:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      skip_k6:
+        description: 'Skip k6 load tests (use when staging is unavailable)'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false   # nightly runs must complete
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+  GO_VERSION: "1.22"
+
+jobs:
+  # ── 1. Dependency Vulnerability Audit ────────────────────────────────────────
+  dependency-audit:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── npm audit ──────────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: npm audit (high+)
+        run: |
+          npm audit --audit-level=high --json > npm-audit.json
+          EXIT_CODE=$?
+          # Report but don't fail nightly for informational purposes
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::warning::npm audit found high/critical vulnerabilities — review npm-audit.json"
+          fi
+          exit 0
+
+      - name: Upload npm audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-npm-audit
+          path: npm-audit.json
+          retention-days: 30
+
+      # ── pip-audit ──────────────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/ml-service/requirements.txt
+
+      - name: pip-audit (ml-service)
+        working-directory: services/ml-service
+        run: |
+          pip install --upgrade pip pip-audit
+          pip-audit -r requirements.txt --output json > ../../pip-audit.json || \
+            echo "::warning::pip-audit found vulnerabilities"
+
+      - name: Upload pip-audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-pip-audit
+          path: pip-audit.json
+          retention-days: 30
+
+      # ── govulncheck ────────────────────────────────────────────────────────
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/multiplayer/go.sum
+
+      - name: govulncheck (multiplayer)
+        working-directory: services/multiplayer
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./... > ../../govulncheck.txt 2>&1 || \
+            echo "::warning::govulncheck found vulnerabilities — review govulncheck.txt"
+          cat ../../govulncheck.txt
+
+      - name: Upload govulncheck report
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-govulncheck
+          path: govulncheck.txt
+          retention-days: 30
+
+      # ── Trivy filesystem scan ──────────────────────────────────────────────
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 0   # report only
+          ignore-unfixed: true
+
+  # ── 2. k6 Load Tests ─────────────────────────────────────────────────────────
+  k6-load-tests:
+    name: k6 Load Tests
+    runs-on: ubuntu-latest
+    needs: dependency-audit
+    if: ${{ github.event.inputs.skip_k6 != 'true' }}
+    env:
+      BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+      ML_URL: ${{ secrets.STAGING_ML_URL }}
+      AUTH_TOKEN: ${{ secrets.STAGING_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Create results directory
+        run: mkdir -p k6/results
+
+      # Run sequentially to avoid self-DoS ────────────────────────────────────
+
+      - name: k6 — smoke
+        run: k6 run k6/scripts/smoke.js --out json=k6/results/smoke.json
+        continue-on-error: true
+
+      - name: k6 — game (50 VU, 6 min)
+        run: k6 run k6/scripts/game.js --out json=k6/results/game.json
+        continue-on-error: true
+
+      - name: k6 — ml (10 VU, 5 min)
+        run: k6 run k6/scripts/ml.js --out json=k6/results/ml.json
+        continue-on-error: true
+
+      - name: k6 — friends (50 VU, 6 min)
+        run: k6 run k6/scripts/friends.js --out json=k6/results/friends.json
+        continue-on-error: true
+
+      - name: k6 — multiplayer WebSocket (100 VU)
+        run: |
+          k6 run \
+            --env MULTIPLAYER_URL="${STAGING_MP_URL:-$BASE_URL}" \
+            --env MULTIPLAYER_WS="${STAGING_MP_WS:-ws://localhost:3002}" \
+            k6/scripts/multiplayer.js --out json=k6/results/multiplayer.json
+        env:
+          STAGING_MP_URL:  ${{ secrets.STAGING_MP_URL }}
+          STAGING_MP_WS:   ${{ secrets.STAGING_MP_WS }}
+        continue-on-error: true
+
+      - name: k6 — full user journey (50 VU, 6 min)
+        run: k6 run k6/scripts/full-journey.js --out json=k6/results/full-journey.json
+        continue-on-error: true
+
+      - name: k6 — rate limit verification
+        run: k6 run k6/scripts/rate-limit.js --out json=k6/results/rate-limit.json
+        continue-on-error: true
+
+      - name: Check for threshold regressions (> 20% from baseline)
+        run: |
+          # Parse p95 from each result and compare against baseline
+          # Baseline values are in docs/deployment/performance-baselines.md
+          # This script exits non-zero if any p95 exceeds baseline * 1.20
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const BASELINES = {
+            'smoke':         { http_req_duration_p95: 500  },
+            'api_load':      { http_req_duration_p95: 500  },
+            'ml_load':       { http_req_duration_p95: 500  },
+            'friends_load':  { http_req_duration_p95: 500  },
+            'scanner_load':  { http_req_duration_p95: 3000 },
+          };
+
+          const THRESHOLD_FACTOR = 1.20;
+          let failed = false;
+
+          for (const [script, baseline] of Object.entries(BASELINES)) {
+            const resultPath = `k6/results/${script}.json`;
+            if (!fs.existsSync(resultPath)) { console.log(`SKIP ${script}: no result file`); continue; }
+
+            const lines = fs.readFileSync(resultPath, 'utf8').split('\n').filter(Boolean);
+            const metrics = {};
+            for (const line of lines) {
+              try {
+                const obj = JSON.parse(line);
+                if (obj.type === 'Point' && obj.metric === 'http_req_duration') {
+                  // Approximate p95 from max of sample (simplified)
+                  metrics['http_req_duration_p95'] = Math.max(
+                    metrics['http_req_duration_p95'] || 0,
+                    obj.data.value
+                  );
+                }
+              } catch {}
+            }
+
+            for (const [metric, baselineVal] of Object.entries(baseline)) {
+              const actual = metrics[metric];
+              if (actual === undefined) { console.log(`SKIP ${script}/${metric}: not in results`); continue; }
+              const limit = baselineVal * THRESHOLD_FACTOR;
+              if (actual > limit) {
+                console.error(`FAIL ${script}/${metric}: ${actual.toFixed(0)}ms > ${limit.toFixed(0)}ms (baseline ${baselineVal}ms + 20%)`);
+                failed = true;
+              } else {
+                console.log(`PASS ${script}/${metric}: ${actual.toFixed(0)}ms <= ${limit.toFixed(0)}ms`);
+              }
+            }
+          }
+
+          if (failed) process.exit(1);
+          console.log('All k6 threshold checks passed.');
+          EOF
+
+      - name: Upload k6 results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-k6-results
+          path: k6/results/
+          retention-days: 30
+
+      - name: Notify on k6 failures
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Nightly] k6 threshold regression — ${new Date().toISOString().slice(0,10)}`,
+              body: `k6 nightly load test detected a p95 latency regression > 20% above baseline.\n\nSee workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['performance', 'nightly'],
+            });
+
+  # ── 3. Model Drift Check ──────────────────────────────────────────────────────
+  model-drift:
+    name: Model Drift Check
+    runs-on: ubuntu-latest
+    needs: dependency-audit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Call drift-summary endpoint
+        env:
+          BASE_URL: ${{ secrets.STAGING_ML_URL }}
+          AUTH_TOKEN: ${{ secrets.STAGING_AUTH_TOKEN }}
+        run: |
+          RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            "${BASE_URL}/api/v1/analytics/drift-summary" \
+            -o drift-summary.json -w "%{http_code}" || echo "000")
+
+          if [ "$RESPONSE" = "000" ]; then
+            echo "::warning::Staging ML service unreachable — skipping drift check"
+            exit 0
+          fi
+
+          cat drift-summary.json | python3 - <<'PYEOF'
+          import json, sys
+
+          data = json.load(open('drift-summary.json'))
+          models = data.get('models', [])
+          failed = []
+
+          for m in models:
+            psi = m.get('psi_score', 0)
+            name = m.get('model_name', 'unknown')
+            # PSI > 0.2 = significant drift, > 0.1 = moderate drift
+            if psi > 0.2:
+              print(f"CRITICAL drift {name}: PSI={psi:.3f} (> 0.2 threshold)")
+              failed.append(name)
+            elif psi > 0.1:
+              print(f"WARNING drift {name}: PSI={psi:.3f} (> 0.1 moderate threshold)")
+            else:
+              print(f"OK {name}: PSI={psi:.3f}")
+
+          if failed:
+            print(f"\nFAIL: {len(failed)} model(s) have significant drift: {', '.join(failed)}")
+            sys.exit(1)
+          else:
+            print("All models within acceptable drift range.")
+          PYEOF
+
+      - name: Upload drift summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-drift-summary
+          path: drift-summary.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Create issue on significant drift
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Nightly] Model drift detected — ${new Date().toISOString().slice(0,10)}`,
+              body: `Evidently drift check detected PSI > 0.2 on one or more models.\n\nSee workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nRunbook: docs/mlops/drift-response.md`,
+              labels: ['ml', 'drift', 'nightly'],
+            });
+
+  # ── 4. Lighthouse Mobile Perf Audit ──────────────────────────────────────────
+  lighthouse:
+    name: Lighthouse Audit — web-admin
+    runs-on: ubuntu-latest
+    needs: dependency-audit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli
+
+      - name: Start web-admin (if local build available)
+        run: |
+          if [ -f apps/web-admin/package.json ]; then
+            cd apps/web-admin
+            npm run build 2>/dev/null || npx tsc 2>/dev/null || true
+            npx serve -s build -l 3005 &
+            sleep 5
+          else
+            echo "::warning::web-admin build not found — skipping Lighthouse"
+            exit 0
+          fi
+
+      - name: Run Lighthouse CI
+        run: |
+          lhci autorun \
+            --collect.url=http://localhost:3005 \
+            --collect.numberOfRuns=1 \
+            --assert.preset=lighthouse:no-pwa \
+            --assert.assertions.performance=off \
+            --assert.assertions.accessibility="['warn', {minScore: 0.9}]" \
+            --assert.assertions.best-practices="['warn', {minScore: 0.9}]" \
+            --upload.target=temporary-public-storage \
+          || echo "::warning::Lighthouse found issues — review report"
+
+  # ── 5. Edge AI Benchmarks ─────────────────────────────────────────────────────
+  edge-benchmarks:
+    name: Edge AI Benchmarks (Android Emulator)
+    runs-on: ubuntu-latest
+    needs: dependency-audit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up JDK 17 (Android emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Enable KVM (hardware acceleration)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Edge AI benchmarks
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: pixel_4
+          script: |
+            cd apps/mobile
+            npx jest src/benchmarks/edgeAI.benchmark.ts \
+              --testTimeout=60000 \
+              --forceExit \
+              --json --outputFile=/tmp/benchmark-results.json
+        continue-on-error: true
+
+      - name: Check p95 latency thresholds (< 200ms)
+        run: |
+          if [ ! -f /tmp/benchmark-results.json ]; then
+            echo "::warning::No benchmark results found (emulator may not have run)"
+            exit 0
+          fi
+
+          node - <<'EOF'
+          const results = require('/tmp/benchmark-results.json');
+          let failed = false;
+          const THRESHOLD_MS = 200;
+
+          for (const suite of (results.testResults || [])) {
+            for (const test of (suite.testResults || [])) {
+              // Test titles encode: "[model] [device-tier] p95: Xms"
+              const match = test.title.match(/p95:\s*(\d+(\.\d+)?)ms/);
+              if (!match) continue;
+              const p95 = parseFloat(match[1]);
+              if (p95 > THRESHOLD_MS) {
+                console.error(`FAIL ${test.title}: ${p95}ms > ${THRESHOLD_MS}ms`);
+                failed = true;
+              } else {
+                console.log(`PASS ${test.title}: ${p95}ms`);
+              }
+            }
+          }
+          if (failed) process.exit(1);
+          EOF
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-edge-benchmarks
+          path: /tmp/benchmark-results.json
+          if-no-files-found: ignore
+          retention-days: 30

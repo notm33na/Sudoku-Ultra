@@ -1,0 +1,92 @@
+╔══════════════════════════════════════════════════════════════════╗
+║           Sudoku Ultra — {{ .Chart.Version }} deployed to {{ .Release.Namespace }}          ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ .Release.Namespace }}
+Chart:      {{ .Chart.Name }}-{{ .Chart.Version }}
+
+────────────────────────────────────────────────────────────────────
+  SERVICES
+────────────────────────────────────────────────────────────────────
+{{- if .Values.gameService.enabled }}
+  game-service     → http://{{ .Release.Name }}-game-service:{{ .Values.gameService.service.port }}
+{{- end }}
+{{- if .Values.multiplayer.enabled }}
+  multiplayer      → http://{{ .Release.Name }}-multiplayer:{{ .Values.multiplayer.service.port }}
+{{- end }}
+{{- if .Values.mlService.enabled }}
+  ml-service       → http://{{ .Release.Name }}-ml-service:{{ .Values.mlService.service.port }}
+{{- end }}
+{{- if .Values.nginx.enabled }}
+  nginx (gateway)  → http://{{ .Release.Name }}-nginx:{{ .Values.nginx.service.port }}
+{{- end }}
+
+────────────────────────────────────────────────────────────────────
+  OBSERVABILITY
+────────────────────────────────────────────────────────────────────
+{{- if .Values.prometheus.enabled }}
+  Prometheus   → kubectl port-forward svc/{{ .Release.Name }}-prometheus 9090:9090 -n {{ .Release.Namespace }}
+{{- else }}
+  Prometheus   → disabled  (set prometheus.enabled=true to enable)
+{{- end }}
+{{- if .Values.grafana.enabled }}
+  Grafana      → kubectl port-forward svc/{{ .Release.Name }}-grafana 3000:3000 -n {{ .Release.Namespace }}
+               admin / {{ .Values.grafana.adminPassword }}
+{{- else }}
+  Grafana      → disabled  (set grafana.enabled=true to enable)
+{{- end }}
+{{- if .Values.jaeger.enabled }}
+  Jaeger UI    → kubectl port-forward svc/{{ .Release.Name }}-jaeger {{ .Values.jaeger.service.queryPort }}:{{ .Values.jaeger.service.queryPort }} -n {{ .Release.Namespace }}
+{{- else }}
+  Jaeger       → disabled  (set jaeger.enabled=true to enable)
+{{- end }}
+{{- if .Values.otelCollector.enabled }}
+  OTel grpc    → {{ .Release.Name }}-otel-collector:4317
+  OTel http    → {{ .Release.Name }}-otel-collector:4318
+{{- else }}
+  OTel         → disabled  (set otelCollector.enabled=true to enable)
+{{- end }}
+
+────────────────────────────────────────────────────────────────────
+  STORAGE
+────────────────────────────────────────────────────────────────────
+{{- if .Values.minio.enabled }}
+  MinIO API     → {{ .Release.Name }}-minio:{{ .Values.minio.service.apiPort }}
+  MinIO Console → kubectl port-forward svc/{{ .Release.Name }}-minio {{ .Values.minio.service.consolePort }}:{{ .Values.minio.service.consolePort }} -n {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.qdrant.enabled }}
+  Qdrant        → {{ .Release.Name }}-qdrant:{{ .Values.qdrant.service.httpPort }}
+{{- end }}
+
+────────────────────────────────────────────────────────────────────
+  VAULT
+────────────────────────────────────────────────────────────────────
+{{- if .Values.vault.enabled }}
+  Vault agent sidecar injection is ENABLED.
+  Role:    {{ .Values.vault.role }}
+  Address: {{ .Values.vault.address }}
+  Secrets are sourced from Vault — global.* values are ignored.
+{{- else }}
+  Vault is DISABLED.
+  ⚠  Secrets are taken from values.yaml — do NOT use in production.
+  Enable with: --set vault.enabled=true --set vault.address=https://...
+{{- end }}
+
+────────────────────────────────────────────────────────────────────
+  QUICK START
+────────────────────────────────────────────────────────────────────
+  # Tail game-service logs
+  kubectl logs -l app.kubernetes.io/component=game-service -n {{ .Release.Namespace }} -f
+
+  # Open Grafana locally
+  kubectl port-forward svc/{{ .Release.Name }}-grafana 3000:3000 -n {{ .Release.Namespace }}
+
+  # Run a GDPR deletion
+  kubectl exec -it deploy/{{ .Release.Name }}-game-service -n {{ .Release.Namespace }} -- \
+    curl -X POST /api/admin/gdpr/delete -H "Content-Type: application/json" \
+         -d '{"userId":"<uuid>"}'
+
+  # Helm upgrade
+  helm upgrade {{ .Release.Name }} ./infra/helm/sudoku-ultra \
+    -n {{ .Release.Namespace }} --reuse-values

@@ -12,9 +12,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.instrumentation import configure as configure_telemetry, instrument_fastapi
 from app.logging import setup_logging
+
+# Initialise OTel + Sentry before anything else
+configure_telemetry()
 from app.middleware import RequestLoggingMiddleware, register_exception_handlers
-from app.routers import health, classify, scan, recommend, churn, clustering, edge, analytics, mlops, bot, moderate, anomaly, competitive, tutor, xai, onboarding, gan, semantic_search
+from app.routers import health, classify, scan, recommend, churn, clustering, edge, analytics, mlops, bot, moderate, anomaly, competitive, tutor, xai, onboarding, gan, semantic_search, ab_testing
 from app.services.model_registry import model_registry
 
 logger = setup_logging(settings.LOG_LEVEL)
@@ -54,6 +58,9 @@ def create_app() -> FastAPI:
     # ── Exception Handlers ────────────────────────────────────────────────
     register_exception_handlers(app)
 
+    # ── OpenTelemetry FastAPI instrumentation ─────────────────────────────
+    instrument_fastapi(app)
+
     # ── Routers ───────────────────────────────────────────────────────────
     app.include_router(health.router)
     app.include_router(classify.router)
@@ -73,5 +80,6 @@ def create_app() -> FastAPI:
     app.include_router(onboarding.router)
     app.include_router(gan.router)
     app.include_router(semantic_search.router)
+    app.include_router(ab_testing.router)
 
     return app

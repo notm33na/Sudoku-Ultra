@@ -1,3 +1,4 @@
+import './instrumentation';  // must be first — patches modules before they load
 import { createApp } from './app';
 import { config } from './config';
 import { kafkaService } from './services/kafka.service';

@@ -1,0 +1,114 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ArgoCD Notifications — Slack integration
+#
+# Apply with: kubectl apply -f infra/argocd/notifications.yaml -n argocd
+#
+# Prereqs:
+#   kubectl create secret generic argocd-notifications-secret \
+#     --from-literal=slack-token=xoxb-YOUR-BOT-TOKEN -n argocd
+#
+# Slack scopes required: chat:write, chat:write.public
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+data:
+  # ── Notification services ───────────────────────────────────────────────────
+  service.slack: |
+    token: $slack-token
+    username: ArgoCD
+    icon: ":argo:"
+
+  # ── Notification templates ──────────────────────────────────────────────────
+  template.app-sync-failed: |
+    message: |
+      :red_circle: *{{ "{{" }}.app.metadata.name{{ "}}" }}* sync **FAILED** in `{{ "{{" }}.app.spec.destination.namespace{{ "}}" }}`
+      Revision: `{{ "{{" }}.app.status.sync.revision | trunc 7{{ "}}" }}`
+      Error: {{ "{{" }}index .app.status.conditions 0 | toJson | fromJson | pluck "message" | first{{ "}}" }}
+      <{{ "{{" }}.context.argocdUrl{{ "}}" }}/applications/{{ "{{" }}.app.metadata.name{{ "}}" }}|Open in ArgoCD>
+    slack:
+      attachments: |
+        [{
+          "color": "#E53935",
+          "fields": [
+            {"title": "Application", "value": "{{ "{{" }}.app.metadata.name{{ "}}" }}", "short": true},
+            {"title": "Namespace",   "value": "{{ "{{" }}.app.spec.destination.namespace{{ "}}" }}", "short": true},
+            {"title": "Revision",    "value": "{{ "{{" }}.app.status.sync.revision | trunc 7{{ "}}" }}", "short": true},
+            {"title": "Status",      "value": "{{ "{{" }}.app.status.sync.status{{ "}}" }}", "short": true}
+          ]
+        }]
+
+  template.app-sync-succeeded: |
+    message: |
+      :white_check_mark: *{{ "{{" }}.app.metadata.name{{ "}}" }}* synced successfully → `{{ "{{" }}.app.spec.destination.namespace{{ "}}" }}`
+      Revision: `{{ "{{" }}.app.status.sync.revision | trunc 7{{ "}}" }}`
+    slack:
+      attachments: |
+        [{
+          "color": "#43A047",
+          "fields": [
+            {"title": "Application", "value": "{{ "{{" }}.app.metadata.name{{ "}}" }}", "short": true},
+            {"title": "Namespace",   "value": "{{ "{{" }}.app.spec.destination.namespace{{ "}}" }}", "short": true},
+            {"title": "Revision",    "value": "{{ "{{" }}.app.status.sync.revision | trunc 7{{ "}}" }}", "short": true}
+          ]
+        }]
+
+  template.app-sync-running: |
+    message: |
+      :arrows_counterclockwise: *{{ "{{" }}.app.metadata.name{{ "}}" }}* sync in progress…
+
+  template.app-health-degraded: |
+    message: |
+      :warning: *{{ "{{" }}.app.metadata.name{{ "}}" }}* is *Degraded* in `{{ "{{" }}.app.spec.destination.namespace{{ "}}" }}`
+      <{{ "{{" }}.context.argocdUrl{{ "}}" }}/applications/{{ "{{" }}.app.metadata.name{{ "}}" }}|Investigate>
+    slack:
+      attachments: |
+        [{
+          "color": "#FB8C00",
+          "fields": [
+            {"title": "Application", "value": "{{ "{{" }}.app.metadata.name{{ "}}" }}", "short": true},
+            {"title": "Health",      "value": "{{ "{{" }}.app.status.health.status{{ "}}" }}", "short": true}
+          ]
+        }]
+
+  # ── Triggers ────────────────────────────────────────────────────────────────
+  trigger.on-sync-failed: |
+    - when: app.status.operationState.phase in ['Error', 'Failed']
+      send: [app-sync-failed]
+
+  trigger.on-sync-succeeded: |
+    - when: app.status.operationState.phase in ['Succeeded']
+      send: [app-sync-succeeded]
+
+  trigger.on-sync-running: |
+    - when: app.status.operationState.phase in ['Running']
+      send: [app-sync-running]
+
+  trigger.on-health-degraded: |
+    - when: app.status.health.status == 'Degraded'
+      send: [app-health-degraded]
+
+  # ── Default subscriptions (all apps in this ArgoCD instance) ────────────────
+  defaultTriggers: |
+    - on-sync-failed
+    - on-health-degraded
+
+  # ── Context variables ────────────────────────────────────────────────────────
+  context: |
+    argocdUrl: https://argocd.example.com
+---
+# ── Notifications Secret (placeholder — real token injected by CI/Vault) ──────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-notifications-secret
+  namespace: argocd
+  annotations:
+    # Managed by Vault or CI — do not commit real token.
+    # kubectl create secret generic argocd-notifications-secret \
+    #   --from-literal=slack-token=xoxb-YOUR-TOKEN -n argocd --dry-run=client -o yaml | kubectl apply -f -
+type: Opaque
+data:
+  slack-token: ""   # base64-encoded xoxb- bot token

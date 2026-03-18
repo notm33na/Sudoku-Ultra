@@ -1,0 +1,233 @@
+{{- if .Values.networkPolicy.enabled }}
+# ── Default deny-all ingress ──────────────────────────────────────────────────
+# All pods start with no allowed ingress; explicit policies below open
+# only the necessary paths.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-default-deny-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# ── nginx → game-service ──────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-game-service-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: game-service
+  policyTypes:
+    - Ingress
+  ingress:
+    # nginx API gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: nginx
+      ports:
+        - protocol: TCP
+          port: {{ .Values.gameService.service.port }}
+    # multiplayer service-to-service
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: multiplayer
+      ports:
+        - protocol: TCP
+          port: {{ .Values.gameService.service.port }}
+    # prometheus scraping
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.gameService.service.port }}
+---
+# ── nginx → multiplayer ────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-multiplayer-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: multiplayer
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: nginx
+      ports:
+        - protocol: TCP
+          port: {{ .Values.multiplayer.service.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.multiplayer.service.port }}
+---
+# ── game-service + multiplayer → ml-service ───────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-ml-service-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: ml-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: game-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: multiplayer
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: kafka-consumer
+      ports:
+        - protocol: TCP
+          port: {{ .Values.mlService.service.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.mlService.service.port }}
+---
+# ── All services → PostgreSQL ─────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-postgresql-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: primary   # bitnami postgres label
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: game-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ml-service
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# ── All services → Redis ──────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-redis-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: master   # bitnami redis label
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: game-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: multiplayer
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# ── All services → OTel Collector ─────────────────────────────────────────────
+{{- if .Values.otelCollector.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-otel-collector-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: otel-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}    # any pod in namespace may send telemetry
+      ports:
+        - protocol: TCP
+          port: 4317          # OTLP gRPC
+        - protocol: TCP
+          port: 4318          # OTLP HTTP
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: prometheus
+      ports:
+        - protocol: TCP
+          port: 8889          # Prometheus exporter
+{{- end }}
+---
+# ── Prometheus → all scrape targets ───────────────────────────────────────────
+# (ingress rules on individual services already allow this; this policy
+#  ensures prometheus pods can initiate outbound connections)
+{{- if .Values.prometheus.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-prometheus-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: grafana
+      ports:
+        - protocol: TCP
+          port: 9090
+{{- end }}
+{{- end }}

@@ -1,0 +1,89 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # ── Docker container logs ──────────────────────────────────────────────────
+  # Picks up all containers; labels extracted from Docker metadata.
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name:   status
+            values: [running]
+    relabel_configs:
+      # Service name from container label or compose service name
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label:  service
+      - source_labels: [__meta_docker_container_name]
+        regex:         /(.*)
+        target_label:  container
+      - source_labels: [__meta_docker_container_label_com_docker_compose_project]
+        target_label:  project
+      # Drop health-check and init containers
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        regex:         ".*(init|healthcheck).*"
+        action:        drop
+    pipeline_stages:
+      # game-service — JSON structured logs (morgan + custom logger)
+      - match:
+          selector: '{service="game-service"}'
+          stages:
+            - json:
+                expressions:
+                  level:      level
+                  msg:        message
+                  request_id: requestId
+                  user_id:    userId
+                  status:     status
+                  duration_ms: durationMs
+            - labels:
+                level:
+                status:
+      # ml-service — Python logging format
+      - match:
+          selector: '{service="ml-service"}'
+          stages:
+            - regex:
+                expression: '^(?P<level>\w+)\s+(?P<message>.+)$'
+            - labels:
+                level:
+      # multiplayer — Zap JSON logs
+      - match:
+          selector: '{service="multiplayer"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  msg:   msg
+                  room:  room_id
+            - labels:
+                level:
+      # Airflow logs
+      - match:
+          selector: '{service=~"airflow.*"}'
+          stages:
+            - regex:
+                expression: '^\[(?P<ts>[^\]]+)\] \{[^}]+\} (?P<level>\w+) - (?P<message>.+)$'
+            - labels:
+                level:
+
+  # ── System journal (host logs) ────────────────────────────────────────────
+  - job_name: system
+    journal:
+      max_age: 12h
+      labels:
+        job: system
+    relabel_configs:
+      - source_labels: [__journal__systemd_unit]
+        target_label:  unit
+      - source_labels: [__journal_priority_keyword]
+        target_label:  level

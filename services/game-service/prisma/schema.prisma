@@ -261,6 +261,88 @@ model Friendship {
   @@map("friendships")
 }
 
+// ─── A/B Test Config ──────────────────────────────────────────────────────────
+// Stores experiment definitions for ML model A/B testing.
+// status: active | paused | completed
+
+model AbTestConfig {
+  id               String        @id @default(uuid())
+  experimentName   String        @unique @map("experiment_name")
+  modelName        String        @map("model_name")          // e.g. "difficulty-classifier"
+  controlVariant   String        @map("control_variant")     // MLflow stage, e.g. "Production"
+  treatmentVariant String        @map("treatment_variant")   // e.g. "Staging"
+  trafficSplit     Float         @default(0.5) @map("traffic_split")  // fraction → treatment
+  status           String        @default("active")          // active | paused | completed
+  description      String        @default("")
+  startDate        DateTime      @default(now()) @map("start_date")
+  endDate          DateTime?     @map("end_date")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  results          AbTestResult[]
+
+  @@map("ab_test_config")
+}
+
+// Stores per-user metric observations for running experiments.
+
+model AbTestResult {
+  id             String   @id @default(uuid())
+  experimentName String   @map("experiment_name")
+  userId         String   @map("user_id")
+  variant        String   // "control" | "treatment"
+  metricName     String   @map("metric_name")   // e.g. "accuracy", "solve_time_ms"
+  metricValue    Float    @map("metric_value")
+  recordedAt     DateTime @default(now()) @map("recorded_at")
+
+  experiment AbTestConfig @relation(fields: [experimentName], references: [experimentName], onDelete: Cascade)
+
+  @@index([experimentName, variant])
+  @@index([userId])
+  @@map("ab_test_result")
+}
+
+// ─── Feature Store ────────────────────────────────────────────────────────────
+// Versioned feature snapshots used by ML models.
+// feature_group: churn | skill | anomaly | difficulty
+// entity_type  : user | puzzle
+
+model FeatureRecord {
+  id             String          @id @default(uuid())
+  entityId       String          @map("entity_id")
+  entityType     String          @map("entity_type")    // user | puzzle
+  featureGroup   String          @map("feature_group")  // churn | skill | anomaly | difficulty
+  featureVersion Int             @map("feature_version") // monotonic per (entity, group)
+  features       Json                                    // computed feature dict
+  isCurrent      Boolean         @default(true) @map("is_current")
+  pipelineName   String          @map("pipeline_name")  // which DAG/script wrote this
+  pipelineRunId  String?         @map("pipeline_run_id") // MLflow run_id or Airflow run_id
+  computedAt     DateTime        @default(now()) @map("computed_at")
+
+  lineage        FeatureLineage[]
+
+  @@unique([entityId, entityType, featureGroup, featureVersion])
+  @@index([entityId, entityType, featureGroup, isCurrent])
+  @@index([featureGroup, computedAt(sort: Desc)])
+  @@map("feature_store")
+}
+
+// Records what raw data was consumed to produce each FeatureRecord.
+
+model FeatureLineage {
+  id            String        @id @default(uuid())
+  featureId     String        @map("feature_id")
+  sourceTable   String        @map("source_table")   // e.g. game_sessions
+  sourceFilter  Json          @map("source_filter")  // e.g. {"user_id": "...", "since": "..."}
+  rowCount      Int?          @map("row_count")
+  computedAt    DateTime      @default(now()) @map("computed_at")
+
+  feature FeatureRecord @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@index([featureId])
+  @@map("feature_lineage")
+}
+
 // ─── Activity Feed ────────────────────────────────────────────────────────────
 // type: puzzle_completed | badge_earned | lesson_completed | friend_added
 

@@ -1,0 +1,85 @@
+{
+    "cli": {
+        "version": ">= 10.0.0",
+        "appVersionSource": "remote"
+    },
+    "build": {
+        "base": {
+            "node": "20.11.0",
+            "env": {
+                "EXPO_PUBLIC_DEPLOY_ENV": "production"
+            }
+        },
+        "development": {
+            "extends": "base",
+            "developmentClient": true,
+            "distribution": "internal",
+            "channel": "development",
+            "env": {
+                "EXPO_PUBLIC_DEPLOY_ENV": "development",
+                "EXPO_PUBLIC_API_URL": "http://localhost:3001"
+            },
+            "ios": {
+                "simulator": true
+            },
+            "android": {
+                "buildType": "apk",
+                "gradleCommand": ":app:assembleDebug"
+            }
+        },
+        "preview": {
+            "extends": "base",
+            "distribution": "internal",
+            "channel": "staging",
+            "env": {
+                "EXPO_PUBLIC_DEPLOY_ENV": "staging"
+            },
+            "ios": {
+                "enterpriseProvisioning": "adhoc"
+            },
+            "android": {
+                "buildType": "apk"
+            }
+        },
+        "production": {
+            "extends": "base",
+            "autoIncrement": true,
+            "channel": "production",
+            "env": {
+                "EXPO_PUBLIC_DEPLOY_ENV": "production"
+            },
+            "ios": {
+                "resourceClass": "m-medium"
+            },
+            "android": {
+                "buildType": "app-bundle"
+            }
+        }
+    },
+    "submit": {
+        "production": {
+            "ios": {
+                "appleId": "devs@sudokuultra.example.com",
+                "ascAppId": "1234567890",
+                "appleTeamId": "ABCDE12345"
+            },
+            "android": {
+                "serviceAccountKeyPath": "./google-play-service-account.json",
+                "track": "internal",
+                "releaseStatus": "draft"
+            }
+        },
+        "staging": {
+            "ios": {
+                "appleId": "devs@sudokuultra.example.com",
+                "ascAppId": "1234567890",
+                "appleTeamId": "ABCDE12345"
+            },
+            "android": {
+                "serviceAccountKeyPath": "./google-play-service-account.json",
+                "track": "alpha",
+                "releaseStatus": "draft"
+            }
+        }
+    }
+}

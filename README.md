@@ -2,9 +2,9 @@
 
 **ML-Powered Sudoku Platform** — A production-grade, microservices-based mobile Sudoku app with ML difficulty classification, real-time multiplayer, CV puzzle scanning, and an AI technique tutor.
 
-![Version](https://img.shields.io/badge/version-0.0.1-blue)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Phase](https://img.shields.io/badge/phase-1%20Foundation-orange)
+![Phase](https://img.shields.io/badge/phase-5%20Platform%20Maturity-brightgreen)
 
 ---
 
@@ -99,18 +99,21 @@ graph TB
 
 | Layer | Technology |
 |-------|-----------|
-| **Mobile** | React Native, Expo, TypeScript, NativeWind, Zustand, React Navigation |
+| **Mobile** | React Native, Expo, TypeScript, NativeWind, Zustand, React Navigation, EAS |
 | **Game Service** | Node.js, Express, TypeScript, Prisma |
 | **Multiplayer** | Go, gorilla/websocket |
-| **ML/AI** | Python, FastAPI, PyTorch, scikit-learn, LangChain |
+| **ML/AI** | Python, FastAPI, PyTorch, scikit-learn, LangChain, MLflow, Evidently |
+| **Edge AI** | ONNX Runtime (React Native), TFLite (scanner) |
 | **Notifications** | Node.js, Express |
-| **Databases** | PostgreSQL (Supabase), MongoDB (Atlas), Redis (Upstash), Qdrant, DuckDB |
+| **Databases** | PostgreSQL, MongoDB, Redis, Qdrant, DuckDB |
 | **Monorepo** | Turborepo |
-| **CI/CD** | GitHub Actions, GHCR |
-| **Containers** | Docker, Docker Compose (local), k3s (prod) |
-| **Observability** | Prometheus, Grafana, Loki, Jaeger, Sentry |
-| **IaC** | Terraform, Helm, ArgoCD |
+| **CI/CD** | GitHub Actions, GHCR, CodeQL, Trivy |
+| **Containers** | Docker, Docker Compose (local), Kubernetes (prod) |
+| **Observability** | OpenTelemetry, Prometheus, Grafana, Loki, Jaeger, Sentry |
+| **IaC** | Terraform, Helm, ArgoCD, HashiCorp Vault |
 | **Auth** | JWT + Refresh Tokens + OAuth2 (Google/Apple) |
+| **Security** | Helmet, express-rate-limit, NetworkPolicy, RBAC, pod securityContext |
+| **Load testing** | k6 (7 test scripts, nightly regression gate) |
 
 ---
 
@@ -119,7 +122,7 @@ graph TB
 ```
 sudoku-ultra/
 ├── apps/
-│   ├── mobile/              # React Native (Expo)
+│   ├── mobile/              # React Native (Expo) — iOS + Android
 │   └── web-admin/           # Angular admin dashboard
 ├── services/
 │   ├── game-service/        # Node.js + Express + Prisma
@@ -131,16 +134,27 @@ sudoku-ultra/
 │   └── sudoku-engine/       # Core puzzle logic (TypeScript)
 ├── infra/
 │   ├── docker-compose.yml   # Local dev environment
-│   ├── terraform/           # Infrastructure as Code
-│   └── k8s/                 # Helm charts
+│   ├── terraform/           # AWS infrastructure (EKS, RDS, ElastiCache)
+│   ├── helm/                # Helm chart (all k8s manifests)
+│   ├── argocd/              # ArgoCD GitOps manifests
+│   ├── backup/              # PostgreSQL + MongoDB backup scripts
+│   └── otel-collector/      # OpenTelemetry Collector config
+├── k6/
+│   ├── config.js            # Shared k6 options + env helpers
+│   └── scripts/             # Load test scripts (7 scenarios)
 ├── ml/
 │   ├── models/              # Trained model artifacts
-│   ├── notebooks/           # Jupyter notebooks
+│   ├── notebooks/           # Jupyter exploration notebooks
 │   └── pipelines/           # Airflow DAGs
 ├── .github/
-│   └── workflows/           # GitHub Actions CI/CD
+│   └── workflows/           # CI, security, nightly, release pipelines
 └── docs/
-    └── architecture/        # Architecture decision records
+    ├── architecture/        # Architecture decision records (phases 4 + 5)
+    ├── api/                 # API endpoint documentation
+    ├── deployment/          # Deployment guides, DR runbook, performance budget
+    ├── mlops/               # ML model runbooks + SLAs
+    ├── operations/          # On-call runbook
+    └── development/         # Contributing guide, local setup
 ```
 
 ---
@@ -185,6 +199,10 @@ cd infra && docker compose up -d
 | `npm run test` | Run all test suites |
 | `npm run format` | Format all files with Prettier |
 | `npx turbo build --filter=@sudoku-ultra/game-service` | Build a specific workspace |
+| `k6 run k6/scripts/smoke.js` | Run smoke load test against localhost |
+| `npx turbo test:coverage` | Run tests with coverage report |
+
+See [Contributing Guide](docs/development/contributing.md) for full local setup instructions.
 
 ---
 
@@ -192,11 +210,24 @@ cd infra && docker compose up -d
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| **Phase 1** | Foundation — Monorepo, Engine, Game Service, Mobile App, CI/CD | 🔧 In Progress |
-| **Phase 2** | Multiplayer — WebSocket rooms, matchmaking, in-game chat | ⏳ Planned |
-| **Phase 3** | ML/AI — Difficulty classifier, CV scanner, RAG tutor, RL bot | ⏳ Planned |
-| **Phase 4** | Polish — Gamification, onboarding, edge AI, observability | ⏳ Planned |
-| **Phase 5** | Production — k3s deployment, IaC, GitOps, load testing | ⏳ Planned |
+| **Phase 1** | Foundation — Monorepo, Engine, Game Service, Mobile App, CI/CD | ✅ Complete |
+| **Phase 2** | Multiplayer — WebSocket rooms, matchmaking, in-game chat | ✅ Complete |
+| **Phase 3** | ML/AI — Difficulty classifier, CV scanner, RAG tutor, RL bot | ✅ Complete |
+| **Phase 4** | Polish — Gamification, onboarding, edge AI, observability | ✅ Complete |
+| **Phase 5** | Platform Maturity — Security, IaC, GitOps, load testing, mobile release | ✅ Complete |
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [Contributing](docs/development/contributing.md) | Local setup, testing, code standards, PR process |
+| [Phase 5 Architecture](docs/architecture/phase5.md) | Full production architecture (all 10 deliverables) |
+| [On-Call Runbook](docs/operations/on-call-runbook.md) | Alert → runbook mapping, incident response |
+| [Disaster Recovery](docs/deployment/disaster-recovery.md) | RTO 4h / RPO 24h restore procedures |
+| [Performance Budget](docs/deployment/performance-budget.md) | SLO tables, k6 baselines, regression gate |
+| [Helm + Terraform + ArgoCD](docs/deployment/helm-terraform-argocd.md) | Deployment guide |
+| [Model Runbook](docs/mlops/model-runbook.md) | ML model update + rollback procedures |
+| [MLOps SLA](docs/mlops/sla.md) | ML service commitments |
 
 ---
 

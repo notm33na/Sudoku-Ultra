@@ -89,6 +89,14 @@ nginx:
   service:
     type: LoadBalancer
 
+# ── minio ─────────────────────────────────────────────────────────────────────
+minio:
+  enabled: true
+  persistence:
+    size: 100Gi
+    storageClass: gp3
+  # rootUser and rootPassword injected via --set from CI secrets
+
 # ── ollama ────────────────────────────────────────────────────────────────────
 ollama:
   enabled: false   # prod uses HuggingFace inference endpoint; Ollama is dev/staging only

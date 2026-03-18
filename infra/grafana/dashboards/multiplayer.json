@@ -1,0 +1,64 @@
+{
+  "uid": "sudoku-multiplayer",
+  "title": "Sudoku Ultra — Multiplayer",
+  "tags": ["multiplayer", "websocket"],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Active Connections",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "multiplayer_active_connections", "legendFormat": "connections", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"yellow","value":2000},{"color":"red","value":4000}] } } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Active Rooms",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "multiplayer_active_rooms", "legendFormat": "rooms", "datasource": { "uid": "prometheus" } }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Matches Completed (1m)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(rate(multiplayer_matches_completed_total[1m])) * 60", "legendFormat": "matches/min", "datasource": { "uid": "prometheus" } }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Avg Match Duration (s)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "rate(multiplayer_match_duration_seconds_sum[5m]) / rate(multiplayer_match_duration_seconds_count[5m])", "legendFormat": "avg s", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "WS Connections Over Time",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "multiplayer_active_connections", "legendFormat": "active", "datasource": { "uid": "prometheus" } },
+        { "expr": "rate(multiplayer_connections_total[1m]) * 60", "legendFormat": "new/min", "datasource": { "uid": "prometheus" } }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Messages Per Second",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(rate(multiplayer_messages_total[1m])) by (type)",
+        "legendFormat": "{{type}}", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Elo Delta Distribution (hourly)",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "histogram_quantile(0.50, sum(rate(multiplayer_elo_delta_bucket[1h])) by (le))",
+        "legendFormat": "P50 Elo delta", "datasource": { "uid": "prometheus" }
+      }]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Room Error Rate",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(rate(multiplayer_errors_total[5m])) by (error_type)",
+        "legendFormat": "{{error_type}}", "datasource": { "uid": "prometheus" }
+      }]
+    }
+  ]
+}

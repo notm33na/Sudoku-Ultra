@@ -1,15 +1,34 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Sudoku Ultra — Security Scanning (GitHub Actions)
+# Sudoku Ultra — Security Scanning (GitHub Actions)  v0.5.0
 #
 # Jobs:
-#   1. OWASP ZAP API scan (baseline) against a deployed staging environment
-#   2. Trivy container image vulnerability scan (all service images)
-#   3. Dependency audit (npm + pip + Go)
+#   1. truffleHog    — secret scanning on PR diff; full history on push/schedule
+#   2. zap-scan      — OWASP ZAP API scan against staging (push/schedule/dispatch)
+#   3. trivy         — container image scan (all 4 services)
+#   4. audit         — npm audit + pip-audit + govulncheck
 #
-# Runs on:
-#   - Push to main
-#   - Weekly schedule (every Monday 06:00 UTC)
-#   - Manual trigger (workflow_dispatch)
+# Triggers:
+#   - push to main         → all jobs
+#   - pull_request         → truffleHog diff only (no staging access on PRs)
+#   - schedule Mon 06 UTC  → all jobs
+#   - workflow_dispatch    → all jobs, optional target_url override
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sudoku Ultra — Security Scanning (GitHub Actions)  v0.6.0
+#
+# Jobs:
+#   1. codeql        — SAST for JavaScript/TypeScript and Python (push + PR)
+#   2. truffleHog    — secret scanning on PR diff; full history on push/schedule
+#   3. zap-scan      — OWASP ZAP API scan against staging (push/schedule/dispatch)
+#   4. trivy         — container image scan (all 4 services)
+#   5. audit         — npm audit + pip-audit + govulncheck
+#
+# Triggers:
+#   - push to main         → all jobs
+#   - pull_request         → codeql + truffleHog diff only (no staging access on PRs)
+#   - schedule Mon 06 UTC  → all jobs
+#   - workflow_dispatch    → all jobs, optional target_url override
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: Security
@@ -17,127 +36,237 @@ name: Security
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main, develop]
   schedule:
     - cron: '0 6 * * 1'
   workflow_dispatch:
     inputs:
       target_url:
-        description: 'Target URL for ZAP scan (overrides secret)'
+        description: 'Base URL for ZAP scan (overrides STAGING_BASE_URL secret)'
         required: false
         type: string
 
 concurrency:
   group: security-${{ github.ref }}
-  cancel-in-progress: false   # never cancel security scans
+  cancel-in-progress: false   # never cancel a security scan mid-run
 
 jobs:
-  # ── OWASP ZAP API Scan ────────────────────────────────────────────────────────
-  zap-scan:
-    name: OWASP ZAP API Scan
+  # ── 1. CodeQL SAST ────────────────────────────────────────────────────────────
+  codeql:
+    name: CodeQL — ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-${{ matrix.language }}
+          upload: true
+
+  # ── 2. TruffleHog Secret Scan ─────────────────────────────────────────────────
+  trufflehog:
+    name: TruffleHog Secret Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: write        # create issues for findings
-      security-events: write   # upload SARIF
+      pull-requests: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history for push/schedule; PR diff for pull_request
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 0 }}
+
+      - name: TruffleHog — PR diff scan
+        if: github.event_name == 'pull_request'
+        uses: trufflesecurity/trufflehog@main
+        with:
+          # Scan only the commits introduced by this PR
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          extra_args: --only-verified
+
+      - name: TruffleHog — full history scan
+        if: github.event_name != 'pull_request'
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+      - name: Create issue on verified secret found
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Security] TruffleHog found verified secret — ${context.sha.slice(0,7)}`,
+              body: `TruffleHog detected a **verified** secret in the repository.\n\n` +
+                    `**Immediate action required:** rotate the exposed credential.\n\n` +
+                    `See workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['security', 'critical'],
+            });
+
+  # ── 2. OWASP ZAP API Scan ─────────────────────────────────────────────────────
+  # Requires a deployed staging environment — skip on pull_request events.
+  zap-scan:
+    name: OWASP ZAP API Scan
+    runs-on: ubuntu-latest
+    # PRs don't have access to STAGING_BASE_URL secret and have no deployed env
+    if: >
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write          # open issues for high findings
+      security-events: write # upload SARIF to GitHub Security tab
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Determine target URL
+      - name: Resolve target URL
         id: target
+        env:
+          # workflow_dispatch input takes precedence; fall back to repository secret
+          INPUT_URL: ${{ github.event.inputs.target_url }}
+          SECRET_URL: ${{ secrets.STAGING_BASE_URL }}
         run: |
-          URL="${{ github.event.inputs.target_url || secrets.STAGING_BASE_URL }}"
-          echo "url=${URL}" >> $GITHUB_OUTPUT
+          URL="${INPUT_URL:-$SECRET_URL}"
+          if [ -z "$URL" ]; then
+            echo "::warning::Neither target_url input nor STAGING_BASE_URL secret is set — skipping ZAP scan"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "url=${URL}" >> $GITHUB_OUTPUT
+            # OpenAPI spec is served at /openapi.json by game-service
+            echo "openapi_url=${URL}/openapi.json" >> $GITHUB_OUTPUT
+          fi
 
-      - name: ZAP API scan (baseline)
+      - name: ZAP API scan (baseline against OpenAPI spec)
+        if: steps.target.outputs.skip != 'true'
         uses: zaproxy/action-api-scan@v0.9.0
         with:
-          target: ${{ steps.target.outputs.url }}
-          # OpenAPI spec for game-service
+          # When format=openapi, `target` must be the URL of the OpenAPI spec file
+          target: ${{ steps.target.outputs.openapi_url }}
           format: openapi
-          api_scan_url: ${{ steps.target.outputs.url }}/openapi.json
           rules_file_name: .zap/rules.tsv
-          fail_action: false   # report but do not block (alert only)
+          fail_action: false     # report only — do not block the build
           artifact_name: zap-report
           cmd_options: >-
-            -I
             -z "-config scanner.threadPerHost=5"
 
       - name: Upload ZAP report (HTML)
-        if: always()
+        if: always() && steps.target.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
           path: zap_scan_report.html
           retention-days: 30
 
-      - name: Upload SARIF to GitHub Security
-        if: always()
+      - name: Upload ZAP SARIF to GitHub Security
+        if: always() && steps.target.outputs.skip != 'true'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: zap_scan_report.sarif
 
-      - name: Create issue on new high findings
-        if: failure()
+      - name: Create issue on high/critical ZAP findings
+        if: failure() && steps.target.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            github.rest.issues.create({
+            await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `[Security] ZAP found high-severity findings — ${context.sha.slice(0,7)}`,
-              body: `OWASP ZAP API scan found high-severity findings.\n\nSee workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              body: `OWASP ZAP API scan found high-severity findings.\n\n` +
+                    `See workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               labels: ['security', 'high-priority'],
             });
 
-  # ── Trivy Container Scan ──────────────────────────────────────────────────────
+  # ── 3. Trivy Container Scan ───────────────────────────────────────────────────
   trivy:
-    name: Trivy (${{ matrix.service }})
+    name: Trivy — ${{ matrix.service }}
     runs-on: ubuntu-latest
     permissions:
       security-events: write
     strategy:
       fail-fast: false
       matrix:
-        service: [game-service, multiplayer, ml-service]
+        include:
+          - service: game-service
+            context: .
+          - service: multiplayer
+            context: services/multiplayer
+          - service: ml-service
+            context: services/ml-service
+          - service: notifications
+            context: services/notifications
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build image for scanning
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.service == 'game-service' && '.' || format('services/{0}', matrix.service) }}
+          context: ${{ matrix.context }}
           file: services/${{ matrix.service }}/Dockerfile
           push: false
           tags: scan-target:latest
           load: true
+          cache-from: type=gha,scope=trivy-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=trivy-${{ matrix.service }}
 
-      - name: Trivy vulnerability scan
+      - name: Trivy image scan (CRITICAL + HIGH)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: scan-target:latest
           format: sarif
           output: trivy-${{ matrix.service }}.sarif
           severity: CRITICAL,HIGH
-          exit-code: 0   # report only — do not fail build
+          ignore-unfixed: true
+          exit-code: 0   # report only — findings tracked in Security tab
 
       - name: Upload Trivy SARIF
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-${{ matrix.service }}.sarif
           category: trivy-${{ matrix.service }}
 
-  # ── Dependency Audit ──────────────────────────────────────────────────────────
+  # ── 4. Dependency Audit ───────────────────────────────────────────────────────
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # npm audit
+      # ── npm ──────────────────────────────────────────────────────────────────
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20"
           cache: npm
 
       - name: Install npm dependencies
@@ -153,15 +282,17 @@ jobs:
           path: npm-audit.json
           retention-days: 30
 
-      # pip-audit
+      # ── pip-audit ─────────────────────────────────────────────────────────────
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/ml-service/requirements.txt
 
       - name: pip-audit (ml-service)
         working-directory: services/ml-service
         run: |
-          pip install pip-audit
+          pip install --upgrade pip pip-audit
           pip-audit -r requirements.txt --output json > ../../pip-audit.json || true
 
       - name: Upload pip-audit report
@@ -171,10 +302,11 @@ jobs:
           path: pip-audit.json
           retention-days: 30
 
-      # Go vulnerability check
+      # ── govulncheck ───────────────────────────────────────────────────────────
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          cache-dependency-path: services/multiplayer/go.sum
 
       - name: govulncheck (multiplayer)
         working-directory: services/multiplayer

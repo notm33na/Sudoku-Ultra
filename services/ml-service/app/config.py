@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     MLFLOW_TRACKING_URI: str = "http://localhost:5000"
     MLFLOW_EXPERIMENT_NAME: str = "sudoku-ultra"
 
+    # MLflow Model Registry — canonical names for all six production models
+    MLFLOW_MODEL_CLASSIFIER: str = "difficulty-classifier"
+    MLFLOW_MODEL_REGRESSION: str = "adaptive-regression"
+    MLFLOW_MODEL_SCANNER: str = "digit-scanner"
+    MLFLOW_MODEL_CLUSTERING: str = "skill-clustering"
+    MLFLOW_MODEL_CHURN: str = "churn-predictor"
+    MLFLOW_MODEL_GAN: str = "gan-generator"
+
     # Model paths
     MODEL_DIR: str = "ml/models"
     CLASSIFIER_MODEL_NAME: str = "difficulty-classifier"

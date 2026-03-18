@@ -1,0 +1,67 @@
+{
+  "uid": "sudoku-infra",
+  "title": "Sudoku Ultra — Infrastructure",
+  "tags": ["infra", "postgres", "redis", "kafka"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "PostgreSQL Connections",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "pg_stat_database_numbackends{datname=\"sudoku_ultra\"}", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":100}] } } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Redis Memory Used",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "redis_memory_used_bytes", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Kafka Consumer Lag",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(kafka_consumergroup_lag) by (consumergroup)", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"yellow","value":1000},{"color":"red","value":5000}] } } }
+    },
+    {
+      "id": 4, "type": "stat", "title": "MinIO Storage Used",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "minio_cluster_capacity_usable_free_bytes", "datasource": { "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "PostgreSQL TPS",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(pg_stat_database_xact_commit{datname=\"sudoku_ultra\"}[1m])", "legendFormat": "commits/s", "datasource": { "uid": "prometheus" } },
+        { "expr": "rate(pg_stat_database_xact_rollback{datname=\"sudoku_ultra\"}[1m])", "legendFormat": "rollbacks/s", "datasource": { "uid": "prometheus" } }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Container CPU Usage",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\".*sudoku.*\"}[1m])) by (name) * 100",
+        "legendFormat": "{{name}}", "datasource": { "uid": "prometheus" }
+      }],
+      "fieldConfig": { "defaults": { "unit": "percent" } }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Container Memory Usage",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [{
+        "expr": "sum(container_memory_working_set_bytes{name=~\".*sudoku.*\"}) by (name)",
+        "legendFormat": "{{name}}", "datasource": { "uid": "prometheus" }
+      }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Kafka Topic Throughput",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum(rate(kafka_topic_partition_current_offset[1m])) by (topic)", "legendFormat": "{{topic}} in", "datasource": { "uid": "prometheus" } }
+      ]
+    }
+  ]
+}
