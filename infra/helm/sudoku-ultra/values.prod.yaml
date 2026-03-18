@@ -1,0 +1,104 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# values.prod.yaml — Production overrides for Sudoku Ultra
+#
+# Applied on top of values.yaml by ArgoCD (see infra/argocd/application.yaml):
+#   helm.valueFiles:
+#     - values.yaml
+#     - values.prod.yaml
+#
+# SECRETS ARE NOT IN THIS FILE.
+# CI injects all secrets at deploy time via --set flags, e.g.:
+#   helm upgrade --install sudoku-ultra ./infra/helm/sudoku-ultra \
+#     -f values.yaml -f values.prod.yaml \
+#     --set global.jwtSecret=$JWT_SECRET \
+#     --set global.postgresUrl=$DATABASE_URL \
+#     --set global.redisUrl=$REDIS_URL \
+#     --set global.sentryDsn=$SENTRY_DSN \
+#     --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$IRSA_ARN
+# ──────────────────────────────────────────────────────────────────────────────
+
+image:
+  tag: latest   # CI overrides this with the actual sha- tag per deploy
+
+global:
+  kafkaBrokers: "kafka.sudoku-ultra.svc.cluster.local:9092"
+  qdrantUrl: "http://qdrant:6333"
+  ollamaUrl: "http://ollama:11434"
+  # jwtSecret, postgresUrl, redisUrl, sentryDsn — injected by CI via --set
+
+vault:
+  enabled: true
+  address: "https://vault.sudoku-ultra.internal"
+  role: "sudoku-ultra"
+  authPath: "auth/kubernetes"
+
+serviceAccount:
+  create: true
+  annotations:
+    # EKS IRSA role — value injected by CI via --set
+    eks.amazonaws.com/role-arn: ""
+
+# ── game-service ──────────────────────────────────────────────────────────────
+gameService:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  hpa:
+    minReplicas: 3
+    maxReplicas: 12
+    targetCPUUtilizationPercentage: 65
+
+# ── multiplayer ───────────────────────────────────────────────────────────────
+multiplayer:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 600m
+      memory: 512Mi
+  hpa:
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 65
+
+# ── ml-service ────────────────────────────────────────────────────────────────
+mlService:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  hpa:
+    minReplicas: 2
+    maxReplicas: 6
+
+# ── nginx ─────────────────────────────────────────────────────────────────────
+nginx:
+  enabled: true
+  replicaCount: 2
+  service:
+    type: LoadBalancer
+
+# ── ollama ────────────────────────────────────────────────────────────────────
+ollama:
+  enabled: false   # prod uses HuggingFace inference endpoint; Ollama is dev/staging only
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: sudoku-ultra.example.com   # replace with real domain
+  tls:
+    - secretName: sudoku-ultra-tls
+      hosts:
+        - sudoku-ultra.example.com

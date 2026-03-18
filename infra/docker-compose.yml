@@ -255,6 +255,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Qdrant technique seed (one-shot init) ────────────────────────────────────
+  qdrant-seed:
+    image: python:3.11-slim
+    container_name: sudoku-ultra-qdrant-seed
+    restart: "no"
+    working_dir: /app
+    volumes:
+      - ../ml/scripts:/app/scripts:ro
+    environment:
+      QDRANT_URL: http://qdrant:6333
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    command: >
+      bash -c "
+        pip install --quiet qdrant-client==1.10.1 sentence-transformers==3.1.1 &&
+        python scripts/seed_techniques.py --qdrant-url http://qdrant:6333 --reset
+      "
+
   # ── Ollama (local LLM) ────────────────────────────────────────────────────────
   ollama:
     image: ollama/ollama:0.3.12

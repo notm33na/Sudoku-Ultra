@@ -1,0 +1,20 @@
+{{- if .Values.ollama.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  # ClusterIP — Ollama is an internal service consumed by ml-service only.
+  type: ClusterIP
+  selector:
+    {{- include "sudoku-ultra.selectorLabels" (dict "component" "ollama" "root" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.ollama.service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

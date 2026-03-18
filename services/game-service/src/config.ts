@@ -11,7 +11,7 @@ const envSchema = z.object({
     CORS_ORIGIN: z.string().default('*'),
     REDIS_URL: z.string().default('redis://localhost:6379'),
     INTERNAL_SECRET: z.string().default('dev-internal-secret-change-in-production'),
-    ML_SERVICE_URL: z.string().default('http://ml-service:8000'),
+    ML_SERVICE_URL: z.string().default('http://ml-service:3003'),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -2,11 +2,27 @@ apiVersion: v2
 name: sudoku-ultra
 description: Sudoku Ultra — full-stack ML Sudoku platform
 type: application
-version: 0.3.0
-appVersion: "0.3.0"
+version: 0.4.0
+appVersion: "0.4.0"
 keywords:
   - sudoku
   - multiplayer
   - ml
+  - qdrant
+  - rag
 maintainers:
   - name: ml-team
+
+dependencies:
+  - name: postgresql
+    version: "13.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "18.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+  - name: loki-stack
+    version: "2.x.x"
+    repository: https://grafana.github.io/helm-charts
+    condition: loki.enabled

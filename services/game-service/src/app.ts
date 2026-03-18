@@ -10,6 +10,10 @@ import scoreRoutes from './routes/score.routes';
 import dailyRoutes from './routes/daily.routes';
 import homeRoutes from './routes/home.routes';
 import ratingRoutes from './routes/rating.routes';
+import lessonRoutes from './routes/lesson.routes';
+import onboardingRoutes from './routes/onboarding.routes';
+import friendRoutes from './routes/friend.routes';
+import pactRoutes from './routes/pact.routes';
 
 // ─── Express App Factory ──────────────────────────────────────────────────────
 
@@ -43,6 +47,14 @@ export function createApp() {
     app.use('/api/daily', dailyRoutes);
     app.use('/api/home', homeRoutes);
     app.use('/api/ratings', ratingRoutes);
+    app.use('/api/lessons', lessonRoutes);
+    app.use('/api/onboarding', onboardingRoutes);
+    app.use('/api/friends', friendRoutes);
+
+    // ── Pact provider-state endpoint (test only) ──────────────────────────────
+    if (process.env.NODE_ENV === 'test') {
+        app.use('/_pact/provider-states', pactRoutes);
+    }
 
     // ── 404 Handler ───────────────────────────────────────────────────────────
     app.use((_req, res) => {

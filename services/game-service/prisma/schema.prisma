@@ -28,6 +28,13 @@ model User {
   streak            Streak?
   reEngagementQueue ReEngagementQueue[]
   playerRating      PlayerRating?
+  lessonProgress      LessonProgress[]
+  userBadges          UserBadge[]
+  onboardingProgress  OnboardingProgress?
+  sentFriendRequests     Friendship[]    @relation("FriendshipRequester")
+  receivedFriendRequests Friendship[]    @relation("FriendshipAddressee")
+  activityFeedEntries    ActivityFeed[]  @relation("ActivityFeedUser")
+  actorActivities        ActivityFeed[]  @relation("ActivityFeedActor")
 
   @@map("users")
 }
@@ -184,4 +191,91 @@ model MultiplayerMatch {
   @@index([loserId])
   @@index([createdAt(sort: Desc)])
   @@map("multiplayer_matches")
+}
+
+// ─── Gamified Lessons ─────────────────────────────────────────────────────────
+
+model LessonProgress {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  lessonId      String    @map("lesson_id")
+  stepsComplete Int       @default(0) @map("steps_complete")
+  completed     Boolean   @default(false)
+  completedAt   DateTime? @map("completed_at")
+  xpAwarded     Int       @default(0) @map("xp_awarded")
+  startedAt     DateTime  @default(now()) @map("started_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@map("lesson_progress")
+}
+
+model UserBadge {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  badgeId   String   @map("badge_id")
+  awardedAt DateTime @default(now()) @map("awarded_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+  @@map("user_badges")
+}
+
+// ─── Onboarding ───────────────────────────────────────────────────────────────
+
+model OnboardingProgress {
+  id            String    @id @default(uuid())
+  userId        String    @unique @map("user_id")
+  stepsComplete Int       @default(0) @map("steps_complete")
+  completed     Boolean   @default(false)
+  completedAt   DateTime? @map("completed_at")
+  skipped       Boolean   @default(false)
+  startedAt     DateTime  @default(now()) @map("started_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("onboarding_progress")
+}
+
+// ─── Friends ──────────────────────────────────────────────────────────────────
+// status: pending | accepted | declined | blocked
+
+model Friendship {
+  id          String   @id @default(uuid())
+  requesterId String   @map("requester_id")
+  addresseeId String   @map("addressee_id")
+  status      String   @default("pending") // pending | accepted | declined | blocked
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+  @@map("friendships")
+}
+
+// ─── Activity Feed ────────────────────────────────────────────────────────────
+// type: puzzle_completed | badge_earned | lesson_completed | friend_added
+
+model ActivityFeed {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")   // owner of the activity (whose timeline it appears on)
+  actorId   String   @map("actor_id")  // user who performed the action
+  type      String                     // puzzle_completed | badge_earned | lesson_completed | friend_added
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User @relation("ActivityFeedUser",  fields: [userId],  references: [id], onDelete: Cascade)
+  actor User @relation("ActivityFeedActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([actorId])
+  @@map("activity_feed")
 }

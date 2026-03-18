@@ -1,0 +1,19 @@
+{{- if .Values.mlService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ml-service
+spec:
+  selector:
+    {{- include "sudoku-ultra.selectorLabels" (dict "component" "ml-service" "root" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.mlService.service.port }}
+      targetPort: http
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

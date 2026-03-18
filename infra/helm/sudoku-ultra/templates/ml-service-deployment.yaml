@@ -1,0 +1,81 @@
+{{- if .Values.mlService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ml-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ml-service
+spec:
+  replicas: {{ .Values.mlService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sudoku-ultra.selectorLabels" (dict "component" "ml-service" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sudoku-ultra.selectorLabels" (dict "component" "ml-service" "root" .) | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: {{ .Values.mlService.service.port | quote }}
+    spec:
+      serviceAccountName: {{ include "sudoku-ultra.serviceAccountName" . }}
+      {{- with .Values.mlService.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mlService.nodeTolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ml-service
+          image: {{ include "sudoku-ultra.image" (dict "name" .Values.mlService.image.name "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mlService.service.port }}
+              protocol: TCP
+          env:
+            {{- include "sudoku-ultra.globalEnv" . | nindent 12 }}
+            {{- range $k, $v := .Values.mlService.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            - name: QDRANT_URL
+              value: {{ .Values.global.qdrantUrl | quote }}
+            - name: OLLAMA_URL
+              value: {{ .Values.global.ollamaUrl | quote }}
+            - name: SENTRY_DSN
+              value: {{ .Values.global.sentryDsn | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.mlService.service.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.mlService.service.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.mlService.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /app/ml/models
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-ml-models
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-ml-data
+{{- end }}

@@ -1,0 +1,4 @@
+10015	IGNORE	(Incomplete or No Cache-control Header Set)
+10021	IGNORE	(X-Content-Type-Options Header Missing)
+10038	IGNORE	(Content Security Policy Header Not Set — handled by nginx)
+10098	IGNORE	(Cross-Domain Misconfiguration — expected for local dev)

@@ -1,0 +1,183 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Sudoku Ultra — Security Scanning (GitHub Actions)
+#
+# Jobs:
+#   1. OWASP ZAP API scan (baseline) against a deployed staging environment
+#   2. Trivy container image vulnerability scan (all service images)
+#   3. Dependency audit (npm + pip + Go)
+#
+# Runs on:
+#   - Push to main
+#   - Weekly schedule (every Monday 06:00 UTC)
+#   - Manual trigger (workflow_dispatch)
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Security
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target URL for ZAP scan (overrides secret)'
+        required: false
+        type: string
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: false   # never cancel security scans
+
+jobs:
+  # ── OWASP ZAP API Scan ────────────────────────────────────────────────────────
+  zap-scan:
+    name: OWASP ZAP API Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write        # create issues for findings
+      security-events: write   # upload SARIF
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine target URL
+        id: target
+        run: |
+          URL="${{ github.event.inputs.target_url || secrets.STAGING_BASE_URL }}"
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+
+      - name: ZAP API scan (baseline)
+        uses: zaproxy/action-api-scan@v0.9.0
+        with:
+          target: ${{ steps.target.outputs.url }}
+          # OpenAPI spec for game-service
+          format: openapi
+          api_scan_url: ${{ steps.target.outputs.url }}/openapi.json
+          rules_file_name: .zap/rules.tsv
+          fail_action: false   # report but do not block (alert only)
+          artifact_name: zap-report
+          cmd_options: >-
+            -I
+            -z "-config scanner.threadPerHost=5"
+
+      - name: Upload ZAP report (HTML)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap_scan_report.html
+          retention-days: 30
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: zap_scan_report.sarif
+
+      - name: Create issue on new high findings
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Security] ZAP found high-severity findings — ${context.sha.slice(0,7)}`,
+              body: `OWASP ZAP API scan found high-severity findings.\n\nSee workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['security', 'high-priority'],
+            });
+
+  # ── Trivy Container Scan ──────────────────────────────────────────────────────
+  trivy:
+    name: Trivy (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [game-service, multiplayer, ml-service]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service == 'game-service' && '.' || format('services/{0}', matrix.service) }}
+          file: services/${{ matrix.service }}/Dockerfile
+          push: false
+          tags: scan-target:latest
+          load: true
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scan-target:latest
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0   # report only — do not fail build
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+
+  # ── Dependency Audit ──────────────────────────────────────────────────────────
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # npm audit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: npm audit (high+)
+        run: npm audit --audit-level=high --json > npm-audit.json || true
+
+      - name: Upload npm audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit.json
+          retention-days: 30
+
+      # pip-audit
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: pip-audit (ml-service)
+        working-directory: services/ml-service
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --output json > ../../pip-audit.json || true
+
+      - name: Upload pip-audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+          retention-days: 30
+
+      # Go vulnerability check
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: govulncheck (multiplayer)
+        working-directory: services/multiplayer
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./... || true

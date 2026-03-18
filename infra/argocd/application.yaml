@@ -1,0 +1,96 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ArgoCD Application — sudoku-ultra (production)
+#
+# Apply with: kubectl apply -f infra/argocd/application.yaml -n argocd
+#
+# GitOps flow:
+#   1. CI pushes new image tags to GHCR.
+#   2. CI updates image.tag in infra/helm/sudoku-ultra/values.yaml and commits.
+#   3. ArgoCD detects the commit (polling or webhook) and auto-syncs.
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sudoku-ultra
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Notify via Slack on sync events (requires argocd-notifications).
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: devops-alerts
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: deploys
+spec:
+  project: sudoku-ultra
+
+  source:
+    repoURL: https://github.com/your-org/sudoku-ultra
+    targetRevision: main
+    path: infra/helm/sudoku-ultra
+
+    helm:
+      releaseName: sudoku-ultra
+      valueFiles:
+        - values.yaml
+        - values.prod.yaml   # production overrides (not committed — injected by CI)
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sudoku-ultra
+
+  syncPolicy:
+    automated:
+      prune: true       # remove resources no longer in chart
+      selfHeal: true    # revert manual kubectl edits
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Health overrides for custom CRDs
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas   # managed by HPA — ignore drift
+---
+# ── Staging application ───────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sudoku-ultra-staging
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: sudoku-ultra
+
+  source:
+    repoURL: https://github.com/your-org/sudoku-ultra
+    targetRevision: develop
+    path: infra/helm/sudoku-ultra
+
+    helm:
+      releaseName: sudoku-ultra
+      valueFiles:
+        - values.yaml
+        - values.staging.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sudoku-ultra-staging
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

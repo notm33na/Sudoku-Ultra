@@ -1,0 +1,71 @@
+{{- if .Values.gameService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-game-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: game-service
+  annotations:
+    {{- if .Values.vault.enabled }}
+    vault.hashicorp.com/agent-inject: "true"
+    vault.hashicorp.com/role: {{ .Values.vault.role | quote }}
+    vault.hashicorp.com/agent-inject-secret-config: "secret/data/sudoku-ultra/game-service"
+    vault.hashicorp.com/agent-inject-template-config: |
+      {{`{{- with secret "secret/data/sudoku-ultra/game-service" -}}
+      export JWT_SECRET="{{ .Data.data.jwt_secret }}"
+      export DATABASE_URL="{{ .Data.data.database_url }}"
+      export SENTRY_DSN="{{ .Data.data.sentry_dsn }}"
+      {{- end }}`}}
+    {{- end }}
+spec:
+  replicas: {{ .Values.gameService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sudoku-ultra.selectorLabels" (dict "component" "game-service" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sudoku-ultra.selectorLabels" (dict "component" "game-service" "root" .) | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: {{ .Values.gameService.service.port | quote }}
+    spec:
+      serviceAccountName: {{ include "sudoku-ultra.serviceAccountName" . }}
+      containers:
+        - name: game-service
+          image: {{ include "sudoku-ultra.image" (dict "name" .Values.gameService.image.name "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.gameService.service.port }}
+              protocol: TCP
+          env:
+            {{- include "sudoku-ultra.globalEnv" . | nindent 12 }}
+            {{- range $k, $v := .Values.gameService.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            - name: QDRANT_URL
+              value: {{ .Values.global.qdrantUrl | quote }}
+            - name: SENTRY_DSN
+              value: {{ .Values.global.sentryDsn | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.gameService.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.gameService.service.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.gameService.resources | nindent 12 }}
+{{- end }}

@@ -1,21 +1,25 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Sudoku Ultra — CI/CD Pipeline (GitHub Actions)
+# Sudoku Ultra — CI/CD Pipeline (GitHub Actions)  v0.4.0
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/sudoku-ultra
+
 jobs:
-  # ── Lint & Type-Check (Node) ────────────────────────────────────────────────
+  # ── Lint & Type-Check (Node) ─────────────────────────────────────────────────
   lint:
     name: Lint & Type-Check
     runs-on: ubuntu-latest
@@ -47,7 +51,55 @@ jobs:
       - name: Type-check (mobile)
         run: cd apps/mobile && npx tsc --noEmit
 
-  # ── Node.js Tests ───────────────────────────────────────────────────────────
+  # ── Helm Lint ─────────────────────────────────────────────────────────────────
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Helm lint
+        run: |
+          helm lint infra/helm/sudoku-ultra \
+            --set global.jwtSecret=ci-secret \
+            --set global.postgresUrl=postgresql://u:p@host/db
+
+      - name: Helm template (render check)
+        run: |
+          helm template sudoku-ultra infra/helm/sudoku-ultra \
+            --set global.jwtSecret=ci-secret \
+            --set global.postgresUrl=postgresql://u:p@host/db \
+            > /dev/null
+
+  # ── Terraform Validate ────────────────────────────────────────────────────────
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.0"
+
+      - name: Terraform init (backend-less)
+        working-directory: infra/terraform
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        working-directory: infra/terraform
+        run: terraform validate
+
+      - name: Terraform format check
+        working-directory: infra/terraform
+        run: terraform fmt -check -recursive
+
+  # ── Node.js Tests ─────────────────────────────────────────────────────────────
   test-node:
     name: Test (${{ matrix.package }})
     runs-on: ubuntu-latest
@@ -88,7 +140,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # ── Go Tests (multiplayer service) ─────────────────────────────────────────
+  # ── Go Tests (multiplayer service) ───────────────────────────────────────────
   test-go:
     name: Test (multiplayer — Go)
     runs-on: ubuntu-latest
@@ -121,7 +173,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # ── Python Tests (ml-service) ───────────────────────────────────────────────
+  # ── Python Tests (ml-service) ─────────────────────────────────────────────────
   test-python:
     name: Test (ml-service — Python)
     runs-on: ubuntu-latest
@@ -161,7 +213,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # ── Build ───────────────────────────────────────────────────────────────────
+  # ── Pact Consumer Contract Tests ──────────────────────────────────────────────
+  pact-consumer:
+    name: Pact Consumer Contracts
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Pact consumer tests
+        run: npx jest --config pact/jest.config.js --testPathPattern=consumer
+        env:
+          NODE_ENV: test
+
+      - name: Upload pact files
+        uses: actions/upload-artifact@v4
+        with:
+          name: pact-files
+          path: pact/pacts/
+          retention-days: 14
+
+  # ── Build ─────────────────────────────────────────────────────────────────────
   build:
     name: Build (Node)
     runs-on: ubuntu-latest
@@ -182,12 +261,16 @@ jobs:
       - name: Build all packages
         run: npx turbo build
 
-  # ── Docker Build ────────────────────────────────────────────────────────────
+  # ── Docker Build & Push (main only) ──────────────────────────────────────────
   docker:
-    name: Docker Build (${{ matrix.service }})
+    name: Docker (${{ matrix.service }})
     runs-on: ubuntu-latest
-    needs: [test-node, test-go, test-python]
+    needs: [test-node, test-go, test-python, helm-lint]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write    # for cosign OIDC signing
     strategy:
       fail-fast: false
       matrix:
@@ -207,13 +290,99 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build ${{ matrix.service }} image
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push ${{ matrix.service }}
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: false
-          tags: sudoku-ultra/${{ matrix.service }}:latest
-          provenance: false
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
           cache-from: type=gha
-          cache-to: type=gha,mode=min
+          cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless OIDC)
+        run: |
+          cosign sign --yes \
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
+
+  # ── Update Helm image tag & trigger ArgoCD ────────────────────────────────────
+  deploy:
+    name: Deploy (ArgoCD sync)
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.BOT_PAT }}
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Update image tag in values.yaml
+        run: |
+          sed -i "s/^  tag: .*/  tag: sha-${{ steps.sha.outputs.short }}/" \
+            infra/helm/sudoku-ultra/values.yaml
+
+      - name: Commit updated image tag
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add infra/helm/sudoku-ultra/values.yaml
+          git commit -m "chore: update image tag to sha-${{ steps.sha.outputs.short }} [skip ci]"
+          git push
+
+      - name: Trigger ArgoCD sync
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${ARGOCD_AUTH_TOKEN}" \
+            "${ARGOCD_SERVER}/api/v1/applications/sudoku-ultra/sync" \
+            -d '{"prune":true,"dryRun":false}' \
+            --fail-with-body
+
+  # ── k6 Smoke Test (post-deploy) ───────────────────────────────────────────────
+  smoke:
+    name: k6 Smoke Test
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run smoke test
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          ML_URL: ${{ secrets.PROD_ML_URL }}
+          AUTH_TOKEN: ${{ secrets.SMOKE_AUTH_TOKEN }}
+        run: k6 run k6/scripts/smoke.js

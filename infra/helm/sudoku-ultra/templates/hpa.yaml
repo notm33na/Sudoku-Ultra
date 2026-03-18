@@ -1,0 +1,103 @@
+{{/* HPA for game-service */}}
+{{- if and .Values.gameService.enabled .Values.gameService.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-game-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: game-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-game-service
+  minReplicas: {{ .Values.gameService.hpa.minReplicas }}
+  maxReplicas: {{ .Values.gameService.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.gameService.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+---
+{{/* HPA for multiplayer */}}
+{{- if and .Values.multiplayer.enabled .Values.multiplayer.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-multiplayer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: multiplayer
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-multiplayer
+  minReplicas: {{ .Values.multiplayer.hpa.minReplicas }}
+  maxReplicas: {{ .Values.multiplayer.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.multiplayer.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+---
+{{/* HPA for ml-service */}}
+{{- if and .Values.mlService.enabled .Values.mlService.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-ml-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ml-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-ml-service
+  minReplicas: {{ .Values.mlService.hpa.minReplicas }}
+  maxReplicas: {{ .Values.mlService.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.mlService.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+---
+{{/* HPA for nginx */}}
+{{- if and .Values.nginx.enabled .Values.nginx.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-nginx
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-nginx
+  minReplicas: {{ .Values.nginx.hpa.minReplicas }}
+  maxReplicas: {{ .Values.nginx.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.nginx.hpa.targetCPUUtilizationPercentage }}
+{{- end }}

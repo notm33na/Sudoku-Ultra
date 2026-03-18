@@ -1,0 +1,59 @@
+{{- if and .Values.gameService.enabled .Values.gameService.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-game-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.gameService.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "sudoku-ultra.selectorLabels" (dict "component" "game-service" "root" .) | nindent 6 }}
+{{- end }}
+---
+{{- if and .Values.multiplayer.enabled .Values.multiplayer.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-multiplayer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.multiplayer.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "sudoku-ultra.selectorLabels" (dict "component" "multiplayer" "root" .) | nindent 6 }}
+{{- end }}
+---
+{{- if and .Values.mlService.enabled .Values.mlService.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-ml-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.mlService.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "sudoku-ultra.selectorLabels" (dict "component" "ml-service" "root" .) | nindent 6 }}
+{{- end }}
+---
+{{- if and .Values.nginx.enabled .Values.nginx.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-nginx
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.nginx.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "sudoku-ultra.selectorLabels" (dict "component" "nginx" "root" .) | nindent 6 }}
+{{- end }}

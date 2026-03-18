@@ -1,0 +1,23 @@
+{{- if .Values.qdrant.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sudoku-ultra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+spec:
+  selector:
+    {{- include "sudoku-ultra.selectorLabels" (dict "component" "qdrant" "root" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.qdrant.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: {{ .Values.qdrant.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

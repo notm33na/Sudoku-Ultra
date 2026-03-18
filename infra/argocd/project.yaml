@@ -1,0 +1,51 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ArgoCD AppProject — sudoku-ultra
+#
+# Apply with: kubectl apply -f infra/argocd/project.yaml -n argocd
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: sudoku-ultra
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Sudoku Ultra — ML-powered Sudoku platform
+
+  # Repos allowed as source
+  sourceRepos:
+    - https://github.com/your-org/sudoku-ultra
+    - https://charts.bitnami.com/bitnami
+    - https://grafana.github.io/helm-charts
+
+  # Clusters allowed as destination
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: sudoku-ultra
+    - server: https://kubernetes.default.svc
+      namespace: sudoku-ultra-staging
+
+  # Cluster-level resources this project can manage
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+
+  # Namespace-level resources — allow all
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  # Roles — CI can sync but not delete production resources
+  roles:
+    - name: ci-deployer
+      description: Allows CI pipeline to sync apps
+      policies:
+        - p, proj:sudoku-ultra:ci-deployer, applications, get, sudoku-ultra/*, allow
+        - p, proj:sudoku-ultra:ci-deployer, applications, sync, sudoku-ultra/*, allow
+        - p, proj:sudoku-ultra:ci-deployer, applications, override, sudoku-ultra/*, allow
+      jwtTokens: []

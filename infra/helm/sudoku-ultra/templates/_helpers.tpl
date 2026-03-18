@@ -26,6 +26,17 @@ Usage: include "sudoku-ultra.image" (dict "name" "multiplayer" "root" .)
 {{- end }}
 
 {{/*
+Service account name
+*/}}
+{{- define "sudoku-ultra.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default .Release.Name .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
 Global env vars injected into every service pod
 */}}
 {{- define "sudoku-ultra.globalEnv" -}}

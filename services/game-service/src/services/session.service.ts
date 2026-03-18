@@ -6,6 +6,7 @@ import { CreateSessionInput, UpdateSessionInput, CompleteSessionInput } from '..
 import { getPuzzleWithSolution } from './puzzle.service';
 import { kafkaService } from './kafka.service';
 import { checkSessionAnomaly } from './anomaly.service';
+import { emitActivity } from './friend.service';
 
 // ─── Create Session ───────────────────────────────────────────────────────────
 
@@ -179,6 +180,13 @@ export async function completeSession(
             completedAt: now,
         },
     });
+
+    // Emit social activity — fire-and-forget.
+    emitActivity(userId, userId, 'puzzle_completed', {
+        difficulty: session.difficulty,
+        score: finalScore,
+        timeElapsedMs: input.timeElapsedMs,
+    }).catch(() => null);
 
     // Anti-cheat anomaly check — fire-and-forget, never blocks gameplay.
     checkSessionAnomaly({

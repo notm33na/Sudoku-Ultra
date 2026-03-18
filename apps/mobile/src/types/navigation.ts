@@ -34,6 +34,14 @@ export type RootStackParamList = {
         difficulty: string;
         durationMs: number;
     };
+    Lessons: undefined;
+    LessonDetail: {
+        lessonId: string;
+        title: string;
+    };
+    Onboarding: undefined;
+    Friends: undefined;
+    ActivityFeed: undefined;
 };
 
 export type HomeScreenProps = NativeStackScreenProps<RootStackParamList, 'Home'>;
@@ -44,3 +52,8 @@ export type ScanPuzzleScreenProps = NativeStackScreenProps<RootStackParamList, '
 export type MultiplayerLobbyScreenProps = NativeStackScreenProps<RootStackParamList, 'MultiplayerLobby'>;
 export type MultiplayerGameScreenProps = NativeStackScreenProps<RootStackParamList, 'MultiplayerGame'>;
 export type MatchResultScreenProps = NativeStackScreenProps<RootStackParamList, 'MatchResult'>;
+export type LessonsScreenProps = NativeStackScreenProps<RootStackParamList, 'Lessons'>;
+export type LessonDetailScreenProps = NativeStackScreenProps<RootStackParamList, 'LessonDetail'>;
+export type OnboardingScreenProps = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
+export type FriendsScreenProps = NativeStackScreenProps<RootStackParamList, 'Friends'>;
+export type ActivityFeedScreenProps = NativeStackScreenProps<RootStackParamList, 'ActivityFeed'>;

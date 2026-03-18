@@ -1,0 +1,104 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# values.staging.yaml — Staging overrides for Sudoku Ultra
+#
+# Applied on top of values.yaml by ArgoCD (see infra/argocd/application.yaml):
+#   helm.valueFiles:
+#     - values.yaml
+#     - values.staging.yaml
+#
+# SECRETS ARE NOT IN THIS FILE.
+# CI injects all secrets at deploy time via --set flags, e.g.:
+#   helm upgrade --install sudoku-ultra ./infra/helm/sudoku-ultra \
+#     -f values.yaml -f values.staging.yaml \
+#     --set global.jwtSecret=$STAGING_JWT_SECRET \
+#     --set global.postgresUrl=$STAGING_DATABASE_URL \
+#     --set global.redisUrl=$STAGING_REDIS_URL \
+#     --set global.sentryDsn=$STAGING_SENTRY_DSN
+# ──────────────────────────────────────────────────────────────────────────────
+
+image:
+  tag: latest   # CI overrides with sha- tag from develop branch
+
+global:
+  kafkaBrokers: "kafka.sudoku-ultra-staging.svc.cluster.local:9092"
+  qdrantUrl: "http://qdrant:6333"
+  ollamaUrl: "http://ollama:11434"
+  # jwtSecret, postgresUrl, redisUrl, sentryDsn — injected by CI via --set
+
+vault:
+  enabled: false   # staging reads secrets from CI --set, not Vault
+
+# ── game-service ──────────────────────────────────────────────────────────────
+gameService:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  hpa:
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+# ── multiplayer ───────────────────────────────────────────────────────────────
+multiplayer:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  hpa:
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+# ── ml-service ────────────────────────────────────────────────────────────────
+mlService:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  hpa:
+    minReplicas: 1
+    maxReplicas: 3
+
+# ── nginx ─────────────────────────────────────────────────────────────────────
+nginx:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP   # staging uses an ingress, not a bare LoadBalancer
+
+# ── ollama ────────────────────────────────────────────────────────────────────
+ollama:
+  enabled: true   # staging runs Ollama locally for RAG tutor testing
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 8Gi
+  persistence:
+    size: 20Gi
+    storageClass: ""
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: staging.sudoku-ultra.example.com   # replace with real staging domain
+  tls:
+    - secretName: sudoku-ultra-staging-tls
+      hosts:
+        - staging.sudoku-ultra.example.com

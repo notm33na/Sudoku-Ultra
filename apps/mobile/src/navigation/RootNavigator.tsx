@@ -9,14 +9,23 @@ import ScanPuzzleScreen from '../screens/ScanPuzzleScreen';
 import { MultiplayerLobbyScreen } from '../screens/MultiplayerLobbyScreen';
 import { MultiplayerGameScreen } from '../screens/MultiplayerGameScreen';
 import { MatchResultScreen } from '../screens/MatchResultScreen';
+import LessonsScreen from '../screens/LessonsScreen';
+import LessonDetailScreen from '../screens/LessonDetailScreen';
+import OnboardingScreen from '../screens/OnboardingScreen';
+import FriendsScreen from '../screens/FriendsScreen';
+import ActivityFeedScreen from '../screens/ActivityFeedScreen';
 import { colors } from '../theme/colors';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-export function RootNavigator() {
+/**
+ * Pass initialRoute="Onboarding" for first-time users.
+ * The app entry point checks /api/onboarding/status and decides.
+ */
+export function RootNavigator({ initialRoute = 'Home' }: { initialRoute?: keyof RootStackParamList }) {
     return (
         <Stack.Navigator
-            initialRouteName="Home"
+            initialRouteName={initialRoute as 'Home'}
             screenOptions={{
                 headerStyle: {
                     backgroundColor: colors.surface.dark,
@@ -86,6 +95,31 @@ export function RootNavigator() {
                     headerShown: false,
                     gestureEnabled: false,
                 }}
+            />
+            <Stack.Screen
+                name="Lessons"
+                component={LessonsScreen}
+                options={{ title: 'Learn' }}
+            />
+            <Stack.Screen
+                name="LessonDetail"
+                component={LessonDetailScreen}
+                options={({ route }) => ({ title: route.params.title })}
+            />
+            <Stack.Screen
+                name="Onboarding"
+                component={OnboardingScreen}
+                options={{ headerShown: false, gestureEnabled: false }}
+            />
+            <Stack.Screen
+                name="Friends"
+                component={FriendsScreen}
+                options={{ title: 'Friends' }}
+            />
+            <Stack.Screen
+                name="ActivityFeed"
+                component={ActivityFeedScreen}
+                options={{ title: 'Activity Feed' }}
             />
         </Stack.Navigator>
     );

@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Sudoku Ultra — Helm Values
+# Sudoku Ultra — Helm Values  (v0.4.0)
 # Override with: helm upgrade --install sudoku-ultra ./infra/helm/sudoku-ultra \
 #   -f my-values.yaml
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10,13 +10,29 @@ image:
   pullPolicy: IfNotPresent
   tag: latest
 
-# ── Global secrets (override in production) ───────────────────────────────────
+# ── Global secrets (use Vault in production — values here are dev defaults) ───
 global:
   jwtSecret: "dev-jwt-secret-change-in-production"
   internalSecret: "dev-internal-secret-change-in-production"
   postgresUrl: "postgresql://sudoku:sudoku_dev_password@postgres:5432/sudoku_ultra"
   redisUrl: "redis://redis:6379"
   kafkaBrokers: "kafka:9092"
+  qdrantUrl: "http://qdrant:6333"
+  ollamaUrl: "http://ollama:11434"
+  sentryDsn: ""  # set per-env in CI secrets
+
+# ── Vault integration ─────────────────────────────────────────────────────────
+vault:
+  enabled: false   # enable to inject Vault agent init containers
+  address: "https://vault.example.com"
+  role: "sudoku-ultra"
+  authPath: "auth/kubernetes"
+
+# ── Service Account ───────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""          # defaults to {{ .Release.Name }}
+  annotations: {}   # add eks.amazonaws.com/role-arn for IRSA
 
 # ── game-service ──────────────────────────────────────────────────────────────
 gameService:
@@ -33,6 +49,14 @@ gameService:
     limits:
       cpu: 500m
       memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
   env:
     NODE_ENV: production
     PORT: "3001"
@@ -53,6 +77,14 @@ multiplayer:
     limits:
       cpu: 300m
       memory: 256Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
   env:
     PORT: "3002"
     LOG_LEVEL: info
@@ -79,6 +111,21 @@ mlService:
     limits:
       cpu: 1000m
       memory: 2Gi
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 75
+  pdb:
+    enabled: true
+    minAvailable: 1
+  nodeTolerations:
+    - key: workload
+      operator: Equal
+      value: ml
+      effect: NoSchedule
+  nodeSelector:
+    workload: ml
   env:
     PORT: "3003"
     ENV: production
@@ -89,15 +136,17 @@ mlService:
   persistence:
     models:
       size: 2Gi
+      storageClass: ""
     data:
       size: 5Gi
+      storageClass: ""
 
 # ── kafka-consumer ────────────────────────────────────────────────────────────
 kafkaConsumer:
   enabled: true
   replicaCount: 1
   image:
-    name: ml-service   # shares the ml-service image
+    name: ml-service
   command: ["python", "-m", "app.ml.kafka_consumer"]
   resources:
     requests:
@@ -121,6 +170,7 @@ nginx:
   service:
     type: LoadBalancer
     port: 80
+    httpsPort: 443
   resources:
     requests:
       cpu: 50m
@@ -128,16 +178,69 @@ nginx:
     limits:
       cpu: 200m
       memory: 128Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 60
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+# ── Qdrant (vector DB) ────────────────────────────────────────────────────────
+qdrant:
+  enabled: true
+  image:
+    repository: qdrant/qdrant
+    tag: v1.10.1
+  service:
+    httpPort: 6333
+    grpcPort: 6334
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  persistence:
+    size: 5Gi
+    storageClass: ""
+
+# ── Ollama (local LLM) ────────────────────────────────────────────────────────
+ollama:
+  enabled: false   # disabled in prod — use HuggingFace endpoint instead
+  image:
+    repository: ollama/ollama
+    tag: 0.3.12
+  service:
+    port: 11434
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 8Gi
+  persistence:
+    size: 20Gi
+    storageClass: ""
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
   enabled: false
   className: nginx
-  annotations: {}
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
   host: sudoku-ultra.example.com
-  tls: []
+  tls:
+    - secretName: sudoku-ultra-tls
+      hosts:
+        - sudoku-ultra.example.com
 
-# ── PostgreSQL (sub-chart) ────────────────────────────────────────────────────
+# ── PostgreSQL sub-chart ──────────────────────────────────────────────────────
 postgresql:
   enabled: true
   auth:
@@ -148,7 +251,7 @@ postgresql:
     persistence:
       size: 10Gi
 
-# ── Redis (sub-chart) ─────────────────────────────────────────────────────────
+# ── Redis sub-chart ───────────────────────────────────────────────────────────
 redis:
   enabled: true
   auth:
@@ -156,3 +259,33 @@ redis:
   master:
     persistence:
       size: 1Gi
+
+# ── Observability (Loki stack sub-chart) ─────────────────────────────────────
+loki:
+  enabled: false   # enable in prod
+  grafana:
+    enabled: true
+    adminPassword: changeme
+  promtail:
+    enabled: true
+  loki:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# ── Jaeger tracing ────────────────────────────────────────────────────────────
+jaeger:
+  enabled: false   # enable in prod
+  image:
+    repository: jaegertracing/all-in-one
+    tag: "1.58"
+  service:
+    queryPort: 16686
+    collectorPort: 4317  # OTLP gRPC
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

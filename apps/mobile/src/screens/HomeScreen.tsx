@@ -216,6 +216,20 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                     >
                         <Text style={styles.multiplayerButtonText}>⚔️  Multiplayer</Text>
                     </Pressable>
+
+                    <Pressable
+                        style={({ pressed }) => [styles.learnButton, pressed && styles.pressed]}
+                        onPress={() => navigation.navigate('Lessons')}
+                    >
+                        <Text style={styles.learnButtonText}>🎓  Learn</Text>
+                    </Pressable>
+
+                    <Pressable
+                        style={({ pressed }) => [styles.friendsButton, pressed && styles.pressed]}
+                        onPress={() => navigation.navigate('Friends')}
+                    >
+                        <Text style={styles.friendsButtonText}>👥  Friends</Text>
+                    </Pressable>
                 </View>
 
                 {/* ── Recommended difficulties ────────────────────────────── */}
@@ -508,6 +522,39 @@ const styles = StyleSheet.create({
         fontSize: 17,
         fontWeight: '700',
         color: '#a78bfa',
+        letterSpacing: 0.4,
+    },
+
+    // Learn button
+    learnButton: {
+        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+        paddingVertical: 18,
+        borderRadius: 14,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#6366f1',
+        marginTop: 10,
+    },
+    learnButtonText: {
+        fontSize: 17,
+        fontWeight: '700',
+        color: '#6366f1',
+        letterSpacing: 0.4,
+    },
+
+    // Friends button
+    friendsButton: {
+        backgroundColor: 'rgba(34, 211, 238, 0.1)',
+        paddingVertical: 18,
+        borderRadius: 14,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#22d3ee',
+    },
+    friendsButtonText: {
+        fontSize: 17,
+        fontWeight: '700',
+        color: '#22d3ee',
         letterSpacing: 0.4,
     },
 
